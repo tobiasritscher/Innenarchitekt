@@ -8,7 +8,9 @@ import { PCFShadowMap, type PerspectiveCamera, type WebGLRenderer } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { useRooms } from '../core/derived'
 import { fmtDate, fmtNumber, fmtTime } from '../core/format'
+import { newId } from '../core/engine'
 import type { Light } from '../core/generated/Light'
+import type { LightScene } from '../core/generated/LightScene'
 import { useEditor, type Quality } from '../state/editor'
 import { useProject } from '../state/project'
 import { Building } from './Building'
@@ -22,6 +24,7 @@ import { Joystick, MiniMap } from './MiniMap'
 import { WalkControls } from './WalkControls'
 
 const NO_LIGHTS: Light[] = []
+const NO_SCENES: LightScene[] = []
 
 export function ViewMode() {
   const quality = useEditor((s) => s.view.quality)
@@ -191,6 +194,7 @@ function ViewPanel({ glRef }: { glRef: React.RefObject<WebGLRenderer | null> }) 
 
           <h3>Lampen</h3>
           <LampList />
+          <LightScenes />
 
           <h3>Darstellung</h3>
           <div className="v3d-seg v3d-seg-full" role="tablist">
@@ -246,6 +250,100 @@ function LampList() {
           }
         >
           {allOn ? 'Alle aus' : 'Alle ein'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Ops that bring the lamps into the scene's state (lamps deleted since are skipped). */
+function sceneOps(lights: Light[], sc: LightScene) {
+  return sc.states.flatMap((st) => {
+    const l = lights.find((x) => x.id === st.light)
+    return l && (l.on !== st.on || l.lumen !== st.lumen) ? [{ op: 'PutLight' as const, light: { ...l, on: st.on, lumen: st.lumen } }] : []
+  })
+}
+
+const snapshot = (lights: Light[]) => lights.map((l) => ({ light: l.id, on: l.on, lumen: l.lumen }))
+
+function LightScenes() {
+  const lights = useProject((s) => s.project?.lights ?? NO_LIGHTS)
+  const scenes = useProject((s) => s.project?.light_scenes ?? NO_SCENES)
+  // null = idle, '' = new scene, else id of the scene being renamed
+  const [editing, setEditing] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  if (!lights.length) return null
+  const commit = useProject.getState().commit
+  const put = (scene: LightScene, label: string) => commit([{ op: 'PutLightScene', scene }], label)
+  const startEdit = (id: string, initial: string) => {
+    setEditing(id)
+    setName(initial)
+  }
+  const save = () => {
+    const n = name.trim()
+    if (!n) return
+    if (editing === '') put({ id: newId(), name: n, states: snapshot(lights) }, `Lichtszene «${n}» speichern`)
+    else {
+      const sc = scenes.find((x) => x.id === editing)
+      if (sc && sc.name !== n) put({ ...sc, name: n }, 'Lichtszene umbenennen')
+    }
+    setEditing(null)
+  }
+  const editor = (
+    <div className="v3d-scene-edit">
+      <input
+        autoFocus
+        value={name}
+        placeholder="Name, z. B. Abend"
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') save()
+          if (e.key === 'Escape') setEditing(null)
+        }}
+      />
+      <button className="primary" onClick={save} disabled={!name.trim()}>
+        OK
+      </button>
+      <button className="ghost" onClick={() => setEditing(null)} title="Abbrechen">
+        ×
+      </button>
+    </div>
+  )
+  return (
+    <div className="v3d-scenes">
+      <h4>Lichtszenen</h4>
+      {scenes.map((sc) =>
+        editing === sc.id ? (
+          <div key={sc.id}>{editor}</div>
+        ) : (
+          <div key={sc.id} className="v3d-scene">
+            <button
+              className="v3d-scene-apply"
+              aria-pressed={sceneOps(lights, sc).length === 0}
+              onClick={() => {
+                const ops = sceneOps(lights, sc)
+                if (ops.length) commit(ops, `Lichtszene: ${sc.name}`)
+              }}
+            >
+              {sc.name}
+            </button>
+            <button className="ghost" title="Mit aktuellem Zustand überschreiben" onClick={() => put({ ...sc, states: snapshot(lights) }, `Lichtszene «${sc.name}» aktualisieren`)}>
+              ↻
+            </button>
+            <button className="ghost" title="Umbenennen" onClick={() => startEdit(sc.id, sc.name)}>
+              ✎
+            </button>
+            <button className="ghost" title="Löschen" onClick={() => commit([{ op: 'DeleteLightScene', id: sc.id }], `Lichtszene «${sc.name}» löschen`)}>
+              🗑
+            </button>
+          </div>
+        ),
+      )}
+      {editing === '' ? (
+        editor
+      ) : (
+        <button className="link v3d-small" onClick={() => startEdit('', '')}>
+          + Aktuellen Zustand speichern
         </button>
       )}
     </div>

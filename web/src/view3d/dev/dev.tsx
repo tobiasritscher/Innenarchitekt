@@ -143,6 +143,7 @@ function buildProject() {
     floors: [{ id: floorId, name: 'EG', ceiling_height_mm: 2500, nodes: Object.values(N), walls, openings, rooms, reference_image: null }],
     furniture,
     lights,
+    light_scenes: [],
     version: 1,
   }
 }

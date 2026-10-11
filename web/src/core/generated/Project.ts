@@ -3,10 +3,15 @@ import type { Floor } from "./Floor";
 import type { FurnitureInstance } from "./FurnitureInstance";
 import type { GeoLocation } from "./GeoLocation";
 import type { Light } from "./Light";
+import type { LightScene } from "./LightScene";
 
 export type Project = { id: string, name: string, location: GeoLocation | null, 
 /**
  * Geographic north in the plan = plan "up" (−y) rotated clockwise (on screen) by this angle.
  * A compass azimuth A (clockwise from north) points along plan direction (sin(N+A), −cos(N+A)).
  */
-north_angle_deg: number, floors: Array<Floor>, furniture: Array<FurnitureInstance>, lights: Array<Light>, version: number, };
+north_angle_deg: number, floors: Array<Floor>, furniture: Array<FurnitureInstance>, lights: Array<Light>, 
+/**
+ * Saved lamp states ("Abend", "Kochen"). Missing in older projects.
+ */
+light_scenes: Array<LightScene>, version: number, };
