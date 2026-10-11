@@ -20,7 +20,7 @@ import { DoorsButton, useDoorIds } from './doors'
 import { useView3D, type LampType } from './store'
 
 /** Focus id of a room: its RoomMeta id, else the derived key. */
-const roomId = (r: DerivedRoom) => r.meta ?? r.key
+export const roomId = (r: DerivedRoom) => r.meta ?? r.key
 
 export function RoomMode() {
   const rooms = useRooms()
@@ -189,7 +189,7 @@ export function RoomMode() {
 }
 
 /** Mini floor plan: the focused room highlighted, tap another room to switch. */
-function RoomPicker({ rooms, focus }: { rooms: DerivedRoom[]; focus: DerivedRoom | null }) {
+export function RoomPicker({ rooms, focus }: { rooms: DerivedRoom[]; focus: DerivedRoom | null }) {
   const fps = useFootprints()
   const svg = useRef<SVGSVGElement>(null)
   const vb = useMemo(() => {

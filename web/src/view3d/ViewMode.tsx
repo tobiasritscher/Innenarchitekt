@@ -144,7 +144,7 @@ function ViewPanel({ glRef }: { glRef: React.RefObject<WebGLRenderer | null> }) 
           <DaylightControls />
 
           <h3>Lampen</h3>
-          <LampList hint={<>Keine Lampen im Projekt. <button className="link" onClick={() => setMode('room')}>Lampen setzen</button></>} />
+          <LampList hint={<>Keine Lampen im Projekt. <button className="link" onClick={() => setMode('light')}>Im Lichtmodus setzen</button></>} />
           <LightScenes />
 
           <h3>Darstellung</h3>

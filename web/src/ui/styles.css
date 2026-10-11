@@ -1864,6 +1864,22 @@ circle.ref-line {
 .v3d-roompicker {
   cursor: pointer;
 }
+/* light mode tools: two columns of toggle buttons */
+.v3d-light-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.v3d-light-tools button {
+  font-size: 12px;
+  padding: 6px 8px;
+  text-align: left;
+}
+.v3d-light-tools button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
 .v3d-mm-room.active {
   fill: var(--accent);
   fill-opacity: 0.35;

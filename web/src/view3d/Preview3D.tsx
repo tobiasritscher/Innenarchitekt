@@ -353,7 +353,7 @@ const LAMPS: Record<LampType, { name: string; kind: Light['kind']; lumen: number
   Area: { name: 'Leuchtfläche', kind: { type: 'Area', w_mm: 600, h_mm: 600 }, lumen: 3000 },
 }
 export const LAMP_LABEL: Record<LampType, string> = { Point: 'Deckenleuchte', Spot: 'Spot', Area: 'Leuchtfläche' }
-const lampGhost = new MeshStandardMaterial({ color: '#ffd27a', emissive: '#ffd27a', emissiveIntensity: 1.5, transparent: true, opacity: 0.8, depthTest: false })
+export const lampGhost = new MeshStandardMaterial({ color: '#ffd27a', emissive: '#ffd27a', emissiveIntensity: 1.5, transparent: true, opacity: 0.8, depthTest: false })
 const lampGeo = new SphereGeometry(0.07, 16, 12)
 
 /** Click to place a ceiling lamp (room mode): the cursor is projected onto the ceiling plane. */
@@ -448,7 +448,7 @@ export function roomFrame(room: DerivedRoom): { cx: number; cz: number; r: numbe
 }
 
 /** Orbit camera around the focused room: no panning, eases to the room on focus change or «Ansicht zurücksetzen». */
-function RoomCamera({ room }: { room: DerivedRoom }) {
+export function RoomCamera({ room }: { room: DerivedRoom }) {
   const camera = useThree((s) => s.camera) as PerspectiveCamera
   const controls = useThree((s) => s.controls) as OrbitControlsImpl | null
   const invalidate = useThree((s) => s.invalidate)

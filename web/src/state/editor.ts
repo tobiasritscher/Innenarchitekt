@@ -1,7 +1,7 @@
 // UI state of the editor (not persisted in the project).
 import { create } from 'zustand'
 
-export type Mode = 'model' | 'room' | 'view' | 'import'
+export type Mode = 'model' | 'room' | 'light' | 'view' | 'import'
 
 export type Tool =
   | 'select'

@@ -84,6 +84,7 @@ function Marker({ p, pick, selected }: { p: PlacedLight; pick?: LightHandlers; s
         geometry={bulbGeo}
         material={mat}
         scale={1.6}
+        userData={{ marker: true }}
         onClick={pick?.onClick ? (e) => pick.onClick!(e, s) : undefined}
         onPointerOver={pick?.onOver ? (e) => pick.onOver!(e, s) : undefined}
         onPointerOut={pick?.onOut ? (e) => pick.onOut!(e, s) : undefined}

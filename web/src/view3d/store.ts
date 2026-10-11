@@ -1,12 +1,16 @@
 // 3D-specific UI state (not persisted in the project).
 import { create } from 'zustand'
 
+import type { GlowFace } from '../core/generated/GlowFace'
+
 export type LampType = 'Point' | 'Spot' | 'Area'
+/** Light mode tools: lamps placed on any surface, LED strip dragged, or making an object glow. */
+export type LightTool = LampType | 'Uplight' | 'Strip' | 'Glow'
 
 /** A 3D click tool is active: element clicks/drags must not select or move anything. */
 export const toolActive = () => {
   const s = useView3D.getState()
-  return s.ruler || !!s.placingLight
+  return s.ruler || !!s.placingLight || !!s.lightTool
 }
 
 export type Walker = { x: number; y: number; yaw: number }
@@ -26,12 +30,18 @@ type View3DState = {
   doorOpen: Record<string, boolean>
   /** Room mode: lamp type being placed by clicking (ceiling mounted). */
   placingLight: LampType | null
+  /** Light mode: active tool. */
+  lightTool: LightTool | null
+  /** Light mode: side that glows when making an object glow. */
+  glowFace: GlowFace
   setCutWalls: (v: boolean) => void
   setWalker: (w: Walker | null) => void
   setGhost: (g: { x: number; y: number; rot: number } | null) => void
   requestRoomFit: () => void
   setRuler: (v: boolean) => void
   setPlacingLight: (t: LampType | null) => void
+  setLightTool: (t: LightTool | null) => void
+  setGlowFace: (f: GlowFace) => void
   toggleDoor: (id: string) => void
   setDoors: (ids: string[], open: boolean) => void
 }
@@ -43,6 +53,8 @@ export const useView3D = create<View3DState>((set) => ({
   roomFit: 0,
   ruler: false,
   placingLight: null,
+  lightTool: null,
+  glowFace: 'All',
   doorOpen: {},
   setCutWalls: (cutWalls) => set({ cutWalls }),
   setWalker: (walker) => set({ walker }),
@@ -52,6 +64,8 @@ export const useView3D = create<View3DState>((set) => ({
   toggleDoor: (id) => set((s) => ({ doorOpen: { ...s.doorOpen, [id]: !(s.doorOpen[id] ?? true) } })),
   setDoors: (ids, open) => set((s) => ({ doorOpen: { ...s.doorOpen, ...Object.fromEntries(ids.map((i) => [i, open])) } })),
   setPlacingLight: (placingLight) => set(placingLight ? { placingLight, ruler: false } : { placingLight }),
+  setLightTool: (lightTool) => set(lightTool ? { lightTool, ruler: false } : { lightTool }),
+  setGlowFace: (glowFace) => set({ glowFace }),
 }))
 
 /** Live walker pose, mutated every frame by the walk controls (plan mm, yaw rad, pitch rad). */
