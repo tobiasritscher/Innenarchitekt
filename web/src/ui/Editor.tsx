@@ -10,6 +10,7 @@ import { useProject } from '../state/project'
 import { FurniturePanel } from '../view3d/FurniturePanel'
 import { Preview3D } from '../view3d/Preview3D'
 import { ViewMode } from '../view3d/ViewMode'
+import { AiPanel } from './AiPanel'
 import { ProjectSettings } from './ProjectSettings'
 
 const SYNC_LABEL = { saved: 'Gespeichert', pending: 'Ungespeichert', saving: 'Speichere …', error: 'Offline – wird wiederholt', conflict: 'Neu geladen' }
@@ -31,7 +32,7 @@ export function Editor({ projectId, onExit }: { projectId: string; onExit: () =>
   const toast = useEditor((s) => s.toast)
   const showToast = useEditor((s) => s.showToast)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [sideTab, setSideTab] = useState<'props' | 'furniture' | 'project'>('props')
+  const [sideTab, setSideTab] = useState<'props' | 'furniture' | 'ai' | 'project'>('props')
 
   useEffect(() => {
     setLoadError(null)
@@ -141,6 +142,9 @@ export function Editor({ projectId, onExit }: { projectId: string; onExit: () =>
               <button aria-selected={sideTab === 'furniture'} onClick={() => setSideTab('furniture')}>
                 Möbel
               </button>
+              <button aria-selected={sideTab === 'ai'} onClick={() => setSideTab('ai')}>
+                KI
+              </button>
               <button aria-selected={sideTab === 'project'} onClick={() => setSideTab('project')}>
                 Projekt
               </button>
@@ -148,6 +152,7 @@ export function Editor({ projectId, onExit }: { projectId: string; onExit: () =>
             <div className="sidebar-body">
               {sideTab === 'props' && <PropertiesPanel />}
               {sideTab === 'furniture' && <FurniturePanel />}
+              {sideTab === 'ai' && <AiPanel />}
               {sideTab === 'project' && <ProjectSettings />}
             </div>
             <IssuesPanel />

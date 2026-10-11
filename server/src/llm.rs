@@ -65,7 +65,20 @@ impl LlmClient {
         tool_name: &str,
         schema: serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
-        let body = build_request(&self.model, system, user_text, image_png, tool_name, schema);
+        let images: Vec<(&str, &[u8])> = image_png.map(|p| ("image/png", p)).into_iter().collect();
+        self.structured_images(system, user_text, &images, tool_name, schema).await
+    }
+
+    /// Like [`structured`](Self::structured) with any number of images `(mime, bytes)` (PNG/JPEG).
+    pub async fn structured_images(
+        &self,
+        system: &str,
+        user_text: &str,
+        images: &[(&str, &[u8])],
+        tool_name: &str,
+        schema: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        let body = build_request_images(&self.model, system, user_text, images, tool_name, schema);
         let mut last_err = None;
         for attempt in 0..3 {
             if attempt > 0 {
@@ -121,11 +134,17 @@ fn truncate(s: &str, n: usize) -> String {
 }
 
 /// Chat-completions request body with exactly one forced tool.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn build_request(model: &str, system: &str, user_text: &str, image_png: Option<&[u8]>, tool_name: &str, schema: Value) -> Value {
+    let images: Vec<(&str, &[u8])> = image_png.map(|p| ("image/png", p)).into_iter().collect();
+    build_request_images(model, system, user_text, &images, tool_name, schema)
+}
+
+pub fn build_request_images(model: &str, system: &str, user_text: &str, images: &[(&str, &[u8])], tool_name: &str, schema: Value) -> Value {
     let mut content = vec![json!({"type": "text", "text": user_text})];
-    if let Some(png) = image_png {
-        let b64 = base64::engine::general_purpose::STANDARD.encode(png);
-        content.push(json!({"type": "image_url", "image_url": {"url": format!("data:image/png;base64,{b64}")}}));
+    for (mime, bytes) in images {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+        content.push(json!({"type": "image_url", "image_url": {"url": format!("data:{mime};base64,{b64}")}}));
     }
     json!({
         "model": model,

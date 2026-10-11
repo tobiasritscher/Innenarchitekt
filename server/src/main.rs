@@ -1,5 +1,7 @@
+#![recursion_limit = "256"]
 //! Innenarchitekt backend: axum + Postgres + object store. See docs/api.md.
 
+mod ai;
 mod assets;
 mod auth;
 mod config;
@@ -58,6 +60,7 @@ pub fn router(st: AppState) -> Router {
         .route("/api/projects/{id}", get(projects::get).delete(projects::delete))
         .route("/api/projects/{id}/ops", post(projects::push_ops))
         .route("/api/projects/{id}/floorplan", post(jobs::upload_floorplan))
+        .route("/api/projects/{id}/ai", post(ai::command))
         .route("/api/geocode", post(projects::geocode))
         .route("/api/jobs/{id}", get(jobs::get))
         .route("/api/jobs/{id}/events", get(jobs::events))

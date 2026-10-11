@@ -57,6 +57,8 @@ export const api = {
   login: (token: string) => req<void>('POST', '/auth', { token }),
   checkAuth: () => req<{ ok: boolean }>('GET', '/auth'),
   config: () => req<AppConfig>('GET', '/config'),
+  /** KI-Assistent: multipart text, project, materials, history, photo* → answer + proposed ops. */
+  ai: (projectId: string, fd: FormData) => req<AiResponse>('POST', `/projects/${projectId}/ai`, fd),
 
   listProjects: () => req<ProjectSummary[]>('GET', '/projects'),
   createProject: (name: string, address?: string) => req<Project>('POST', '/projects', { name, address: address || null }),
@@ -103,4 +105,12 @@ export const api = {
   },
   createPrimitive: (shape: PrimitiveShape, name?: string, dims_mm?: [number, number, number]) =>
     req<Asset>('POST', '/assets/primitive', { shape, name: name ?? null, dims_mm: dims_mm ?? null }),
+}
+
+export type AiResponse = {
+  answer: string
+  ops: Op[]
+  changes: string[]
+  warnings: string[]
+  refs: { kind: 'node' | 'wall' | 'opening' | 'room' | 'furniture' | 'light'; id: string }[]
 }

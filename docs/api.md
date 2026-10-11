@@ -30,6 +30,7 @@ Server wendet Ops mit `plan_core::apply_batch` an, `version += 1` pro Batch, spe
 ## Grundriss-Import
 | Methode | Pfad | Body | Antwort |
 |---|---|---|---|
+| POST | `/api/projects/{id}/ai` | multipart: `text`, `project` (Snapshot wie im Client), `materials` (JSON `[[id, name]]`), `history` (optional), `photo` 0–6 (JPG/PNG) | `{answer, ops, changes, warnings, refs}` – Vorschlag, wird nicht gespeichert |
 | POST | `/api/projects/{id}/floorplan` | multipart: `file` (PNG/JPG; PDF wird im Browser zu PNG gerendert), `corners` optional JSON `[[x,y],[x,y],[x,y],[x,y]]` in Bild-Pixeln (TL, TR, BR, BL), `paper_mm_per_px` optional: Papiergrösse eines Pixels in mm (PDF-Render) – mit aufgedrucktem Massstab (1:100) exakter Massstab | `{job_id}` |
 | GET | `/api/jobs/{id}` | – | `Job` |
 | GET | `/api/jobs/{id}/events` | – | SSE, Event `job`, data = `Job`-JSON; endet nach `done`/`failed` |
