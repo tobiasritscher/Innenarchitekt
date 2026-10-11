@@ -12,4 +12,8 @@ dims_mm: [number, number, number],
 /**
  * URL of the GLB (Ikea/Upload). The model is scaled to the instance dims.
  */
-model_url: string | null, thumbnail_url: string | null, primitive: PrimitiveShape | null, ikea: IkeaMeta | null, light: AssetLight | null, warnings: Array<string>, created_at: string, };
+model_url: string | null, thumbnail_url: string | null, primitive: PrimitiveShape | null, ikea: IkeaMeta | null, light: AssetLight | null, warnings: Array<string>, created_at: string, 
+/**
+ * Occupied parts of the box (see `FurnitureInstance::footprint`); empty = whole box, None = not computed yet.
+ */
+footprint: Array<[number, number, number, number]> | null, };

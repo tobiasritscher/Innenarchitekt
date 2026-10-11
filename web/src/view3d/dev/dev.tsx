@@ -111,7 +111,7 @@ function buildProject() {
     { id: id(), anchor: [8000, 1700], name: 'Schlafen', floor_material: 'wood:oak', ceiling_material: 'paint:white', open_ceiling: false },
     { id: id(), anchor: [8000, 5200], name: 'Bad', floor_material: 'tile:grey', ceiling_material: 'paint:white', open_ceiling: false },
   ]
-  const F = (a: (typeof assets)[number], x: number, y: number, rot = 0, material: string | null = null) => ({ id: id(), asset: a.id, name: a.name, pos_mm: [x, y, 0], rotation_deg: rot, dims_mm: [...a.dims_mm], material, walkable: false, overlap_ok: false })
+  const F = (a: (typeof assets)[number], x: number, y: number, rot = 0, material: string | null = null) => ({ id: id(), asset: a.id, name: a.name, pos_mm: [x, y, 0], rotation_deg: rot, dims_mm: [...a.dims_mm], material, walkable: false, overlap_ok: false, footprint: [], passable: false })
   const lamp = F(A['Stehlampe'], 600, 6300, 0, 'metal:black')
   // living area raised by two steps (podium in front of the sofa)
   const podium = { ...F(A['Podest mit Stufen'], 3000, 1400, 0, 'wood:oak'), dims_mm: [5700, 2500, 340], walkable: true }

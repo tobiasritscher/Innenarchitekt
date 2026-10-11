@@ -162,7 +162,8 @@ fn accessor_bounds(json: &Value, idx: usize) -> Option<([f64; 3], [f64; 3])> {
     Some((min, max))
 }
 
-fn visit(json: &Value, node_idx: usize, parent: &Mat4, bbox: &mut BBox, depth: usize) {
+/// Calls `f` with the world-space box of every mesh primitive below `node_idx`.
+fn visit(json: &Value, node_idx: usize, parent: &Mat4, f: &mut dyn FnMut(BBox), depth: usize) {
     if depth > 64 {
         return;
     }
@@ -179,6 +180,7 @@ fn visit(json: &Value, node_idx: usize, parent: &Mat4, bbox: &mut BBox, depth: u
                 continue;
             };
             if let Some((mn, mx)) = accessor_bounds(json, pos as usize) {
+                let mut bbox = BBox::empty();
                 for i in 0..8 {
                     let c = [
                         if i & 1 == 0 { mn[0] } else { mx[0] },
@@ -187,18 +189,19 @@ fn visit(json: &Value, node_idx: usize, parent: &Mat4, bbox: &mut BBox, depth: u
                     ];
                     bbox.extend(transform(&world, c));
                 }
+                f(bbox);
             }
         }
     }
     if let Some(children) = node.get("children").and_then(Value::as_array) {
         for c in children.iter().filter_map(Value::as_u64) {
-            visit(json, c as usize, &world, bbox, depth + 1);
+            visit(json, c as usize, &world, f, depth + 1);
         }
     }
 }
 
-/// Bounding box of the default scene (or all root nodes if no scene is declared).
-pub fn bbox_from_json(json: &Value) -> Result<BBox> {
+/// Boxes of all mesh primitives of the default scene (or all root nodes if no scene is declared).
+fn part_boxes(json: &Value) -> Vec<BBox> {
     let node_count = json.get("nodes").and_then(Value::as_array).map(|a| a.len()).unwrap_or(0);
     let scene_idx = json.get("scene").and_then(Value::as_u64).unwrap_or(0) as usize;
     let roots: Vec<usize> = match json.get("scenes").and_then(|s| s.get(scene_idx)).and_then(|s| s.get("nodes")).and_then(Value::as_array) {
@@ -215,9 +218,19 @@ pub fn bbox_from_json(json: &Value) -> Result<BBox> {
             (0..node_count).filter(|i| !is_child[*i]).collect()
         }
     };
-    let mut bbox = BBox::empty();
+    let mut parts = vec![];
     for r in roots {
-        visit(json, r, &IDENTITY, &mut bbox, 0);
+        visit(json, r, &IDENTITY, &mut |b| parts.push(b), 0);
+    }
+    parts
+}
+
+/// Bounding box of the default scene (or all root nodes if no scene is declared).
+pub fn bbox_from_json(json: &Value) -> Result<BBox> {
+    let mut bbox = BBox::empty();
+    for b in part_boxes(json) {
+        bbox.extend(b.min);
+        bbox.extend(b.max);
     }
     if !bbox.is_valid() {
         bail!("GLB enthält keine Geometrie mit POSITION-Grenzen");
@@ -227,6 +240,91 @@ pub fn bbox_from_json(json: &Value) -> Result<BBox> {
 
 pub fn bbox(bytes: &[u8]) -> Result<BBox> {
     bbox_from_json(&json_chunk(bytes)?)
+}
+
+/// Plan footprint (X × Z) as rects [x0, z0, x1, z1] normalised to the bounding box, from the boxes of the
+/// model's parts (each mesh primitive instance, so it works for Draco too). Empty if the parts fill
+/// (nearly) the whole box, it's a single part, or too fragmented to be of use.
+pub fn footprint(json: &Value) -> Vec<[f32; 4]> {
+    const SNAP: f64 = 0.03; // m: close gaps/steps below this (doors in front of carcasses, handles)
+    const MIN_AREA: f64 = 0.004; // m²: ignore handles, knobs, small hardware
+    const MAX_RECTS: usize = 16;
+    let Ok(total) = bbox_from_json(json) else { return vec![] };
+    let size = total.size();
+    let (w, d) = (size[0], size[2]);
+    if w <= 0.0 || d <= 0.0 {
+        return vec![];
+    }
+    let parts: Vec<[f64; 4]> = part_boxes(json)
+        .into_iter()
+        .filter(|b| b.is_valid())
+        .map(|b| [b.min[0] - total.min[0], b.min[2] - total.min[2], b.max[0] - total.min[0], b.max[2] - total.min[2]])
+        .filter(|r| (r[2] - r[0]) * (r[3] - r[1]) >= MIN_AREA)
+        .collect();
+    if parts.len() < 2 {
+        return vec![];
+    }
+    // grid on the (snapped) part edges
+    let axis = |lo: usize, hi: usize, len: f64| -> Vec<f64> {
+        let mut v: Vec<f64> = parts.iter().flat_map(|r| [r[lo], r[hi]]).chain([0.0, len]).collect();
+        v.sort_by(f64::total_cmp);
+        let mut out: Vec<f64> = vec![];
+        for x in v {
+            if out.last().is_none_or(|l| x - l > SNAP) {
+                out.push(x);
+            }
+        }
+        if let Some(l) = out.last_mut() {
+            *l = len;
+        }
+        out
+    };
+    let (xs, zs) = (axis(0, 2, w), axis(1, 3, d));
+    let (nx, nz) = (xs.len() - 1, zs.len() - 1);
+    // a cell is occupied if a part covers its centre (parts grown by SNAP to close small gaps)
+    let mut occ = vec![vec![false; nx]; nz];
+    for (j, row) in occ.iter_mut().enumerate() {
+        let cz = (zs[j] + zs[j + 1]) / 2.0;
+        for (i, cell) in row.iter_mut().enumerate() {
+            let cx = (xs[i] + xs[i + 1]) / 2.0;
+            *cell = parts.iter().any(|r| cx > r[0] - SNAP && cx < r[2] + SNAP && cz > r[1] - SNAP && cz < r[3] + SNAP);
+        }
+    }
+    // greedy: horizontal runs per row, extended downwards while the rows below have the same run
+    let mut used = vec![vec![false; nx]; nz];
+    let mut rects = vec![];
+    let mut filled = 0.0;
+    for j in 0..nz {
+        let mut i = 0;
+        while i < nx {
+            if !occ[j][i] || used[j][i] {
+                i += 1;
+                continue;
+            }
+            let i0 = i;
+            while i < nx && occ[j][i] && !used[j][i] {
+                i += 1;
+            }
+            let mut j1 = j + 1;
+            while j1 < nz && (i0..i).all(|k| occ[j1][k] && !used[j1][k]) {
+                j1 += 1;
+            }
+            for row in used.iter_mut().take(j1).skip(j) {
+                row[i0..i].iter_mut().for_each(|c| *c = true);
+            }
+            filled += (xs[i] - xs[i0]) * (zs[j1] - zs[j]);
+            rects.push([(xs[i0] / w) as f32, (zs[j] / d) as f32, (xs[i] / w) as f32, (zs[j1] / d) as f32]);
+        }
+    }
+    if rects.len() > MAX_RECTS || filled >= 0.97 * w * d {
+        return vec![];
+    }
+    rects
+}
+
+/// `footprint` of a GLB file (empty if unreadable).
+pub fn footprint_of(bytes: &[u8]) -> Vec<[f32; 4]> {
+    json_chunk(bytes).map(|j| footprint(&j)).unwrap_or_default()
 }
 
 /// Binary chunk of a GLB (empty if absent).

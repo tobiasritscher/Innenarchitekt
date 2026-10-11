@@ -56,6 +56,15 @@ export function furnitureCorners(f: FurnitureInstance): Vec[] {
   return obb([f.pos_mm[0], f.pos_mm[1]], f.dims_mm[0], f.dims_mm[1], f.rotation_deg)
 }
 
+/** Occupied parts of the box (e.g. the arms of an L-shaped wardrobe); empty if it fills the whole box. Mirrors plan-core `footprint_parts`. */
+export function furnitureParts(f: FurnitureInstance): Vec[][] {
+  const [w, d] = f.dims_mm
+  return f.footprint.map(([x0, y0, x1, y1]) => {
+    const local: Vec = [((x0 + x1) / 2 - 0.5) * w, ((y0 + y1) / 2 - 0.5) * d]
+    return obb(add([f.pos_mm[0], f.pos_mm[1]], rotate(local, f.rotation_deg)), (x1 - x0) * w, (y1 - y0) * d, f.rotation_deg)
+  })
+}
+
 /** Kind of the element with this id (searches the first floor + project lists). */
 export function kindOf(p: Project, id: string): SelectionKind | null {
   const f = p.floors[0]

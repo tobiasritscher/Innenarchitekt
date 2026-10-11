@@ -44,7 +44,7 @@ Plan-Koordinaten = Bildpixel × `mm_per_px` (Ursprung oben links). Die Ops werde
 ## Möbel-Bibliothek
 | Methode | Pfad | Body | Antwort |
 |---|---|---|---|
-| GET | `/api/assets` | – | `Asset[]` (neueste zuerst) |
+| GET | `/api/assets` | – | `Asset[]` (neueste zuerst; `footprint` = belegte Teil-Rechtecke der Box, normiert 0..1, aus den Teil-Boxen des GLB; `[]` = ganze Box; fehlt bei alten Assets → wird beim Laden einmal berechnet) |
 | GET | `/api/assets/{id}` | – | `Asset` |
 | DELETE | `/api/assets/{id}` | – | 204 |
 | POST | `/api/assets/ikea` | `{url}` (Produktlink oder Planer-Link `…/addon-app/storageone/<range>/…#/vpc/<CODE>` → Kombination als ein GLB aus der Planer-Teileliste) | `Asset` (gecacht nach Artikelnummer; GLB in Object-Store; `warnings` bei >3 % Abweichung BBox vs. Produktmasse oder fehlendem 3D-Modell) |

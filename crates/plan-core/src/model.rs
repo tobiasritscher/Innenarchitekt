@@ -211,6 +211,13 @@ pub struct FurnitureInstance {
     /// May overlap other furniture without being flagged (e.g. chairs pushed under a table). Walls still count.
     #[serde(default)]
     pub overlap_ok: bool,
+    /// Occupied parts of the box as rects [x0, y0, x1, y1], normalised to it (0..1 along local x/y; from the
+    /// model, e.g. an L-shaped wardrobe). Empty = the whole box. Used for overlaps and walking.
+    #[serde(default)]
+    pub footprint: Vec<[f32; 4]>,
+    /// Never blocks walking (you can walk through it in 3D).
+    #[serde(default)]
+    pub passable: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]

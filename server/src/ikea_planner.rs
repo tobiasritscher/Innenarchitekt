@@ -124,6 +124,7 @@ pub async fn import(st: &AppState, link: PlannerLink) -> ApiResult<Asset> {
         }
     }
     let bbox = crate::glb::bbox(&glb).map_err(|e| ApiError::internal(format!("GLB: {e:#}")))?;
+    let footprint = crate::glb::footprint_of(&glb);
     let id = Uuid::new_v4();
     crate::assets::put_model(st, id, glb).await?;
     let name = format!(
@@ -143,6 +144,7 @@ pub async fn import(st: &AppState, link: PlannerLink) -> ApiResult<Asset> {
         light: None,
         warnings,
         created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        footprint: Some(footprint),
     };
     crate::assets::insert_ikea(st, a).await
 }
@@ -654,6 +656,20 @@ mod tests {
         assert_eq!(j["meshes"].as_array().unwrap().len(), 1, "mesh shared");
         // box at x −0.5…0.5 plus a turned copy at x 1.8…2.2 → 2.7 m wide, 1 m high, 1 m deep
         assert_eq!(crate::glb::bbox(&glb).unwrap().wdh_mm(), [2700, 1000, 1000]);
+    }
+
+    #[test]
+    fn footprint_of_l_shaped_combination() {
+        let s = vec![Solid { art: 1, c: [0.0, 500.0, 0.0], half: [500.0, 500.0, 500.0], rot: [0.0; 3], mat: Mat { color: [1.0; 3], metallic: 0.0, roughness: 0.5 } }];
+        let unit = write_glb_at(&s, [0.0; 3]);
+        let m = |sx: f64, sz: f64, tx: f64, tz: f64| [sx, 0., 0., 0., 0., 1., 0., 0., 0., 0., sz, 0., tx, 0., tz, 1.];
+        // back arm 2 m × 0.6 m, left arm 0.6 m × 1.4 m, plus a handle on the left arm
+        let glb = crate::glb::merge(&[(unit.as_slice(), vec![m(2.0, 0.6, 0.0, -0.7), m(0.6, 1.4, -0.7, 0.3), m(0.02, 0.03, -0.3, 0.5)])]).unwrap();
+        let fp = crate::glb::footprint(&crate::glb::json_chunk(&glb).unwrap());
+        let r = |v: [f32; 4]| v.map(|x| (x * 100.0).round() / 100.0);
+        assert_eq!(fp.into_iter().map(r).collect::<Vec<_>>(), vec![[0.0, 0.0, 1.0, 0.3], [0.0, 0.3, 0.3, 1.0]]);
+        // a single box: no footprint
+        assert!(crate::glb::footprint(&crate::glb::json_chunk(&unit).unwrap()).is_empty());
     }
 
     #[test]

@@ -52,4 +52,7 @@ pub struct Asset {
     pub light: Option<AssetLight>,
     pub warnings: Vec<String>,
     pub created_at: String,
+    /// Occupied parts of the box (see `FurnitureInstance::footprint`); empty = whole box, None = not computed yet.
+    #[serde(default)]
+    pub footprint: Option<Vec<[f32; 4]>>,
 }

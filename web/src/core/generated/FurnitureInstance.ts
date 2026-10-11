@@ -24,4 +24,13 @@ walkable: boolean,
 /**
  * May overlap other furniture without being flagged (e.g. chairs pushed under a table). Walls still count.
  */
-overlap_ok: boolean, };
+overlap_ok: boolean, 
+/**
+ * Occupied parts of the box as rects [x0, y0, x1, y1], normalised to it (0..1 along local x/y; from the
+ * model, e.g. an L-shaped wardrobe). Empty = the whole box. Used for overlaps and walking.
+ */
+footprint: Array<[number, number, number, number]>, 
+/**
+ * Never blocks walking (you can walk through it in 3D).
+ */
+passable: boolean, };

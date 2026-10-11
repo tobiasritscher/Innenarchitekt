@@ -91,19 +91,46 @@ async fn load(db: &PgPool, id: Uuid) -> ApiResult<Asset> {
     Ok(row.try_get::<SqlJson<Asset>, _>("data")?.0)
 }
 
+/// Assets from before footprints existed: compute it from the stored model once and save it.
+async fn ensure_footprint(st: &AppState, a: &mut Asset) {
+    if a.footprint.is_some() {
+        return;
+    }
+    let fp = if a.model_url.is_some() {
+        match st.store.get(&ObjPath::from(model_key(a.id))).await {
+            Ok(r) => match r.bytes().await {
+                Ok(b) => glb::footprint_of(&b),
+                Err(e) => return tracing::warn!(id = %a.id, "Modell nicht lesbar: {e}"),
+            },
+            Err(e) => return tracing::warn!(id = %a.id, "Modell nicht lesbar: {e}"),
+        }
+    } else {
+        vec![]
+    };
+    a.footprint = Some(fp);
+    if let Err(e) = sqlx::query("UPDATE assets SET data = $2 WHERE id = $1").bind(a.id).bind(SqlJson(&*a)).execute(&st.db).await {
+        tracing::warn!(id = %a.id, "Grundfläche nicht gespeichert: {e}");
+    }
+}
+
 // ---------- Handlers ----------
 
 pub async fn list(State(st): State<AppState>) -> ApiResult<Json<Vec<Asset>>> {
     let rows = sqlx::query("SELECT data FROM assets ORDER BY created_at DESC").fetch_all(&st.db).await?;
-    let out = rows
+    let mut out = rows
         .iter()
         .map(|r| r.try_get::<SqlJson<Asset>, _>("data").map(|j| j.0))
         .collect::<Result<Vec<_>, _>>()?;
+    for a in &mut out {
+        ensure_footprint(&st, a).await;
+    }
     Ok(Json(out))
 }
 
 pub async fn get(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<Json<Asset>> {
-    Ok(Json(load(&st.db, id).await?))
+    let mut a = load(&st.db, id).await?;
+    ensure_footprint(&st, &mut a).await;
+    Ok(Json(a))
 }
 
 pub async fn delete(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<StatusCode> {
@@ -144,6 +171,7 @@ pub fn primitive_template(shape: PrimitiveShape) -> Asset {
         light: None,
         warnings: vec![],
         created_at: now(),
+        footprint: Some(vec![]),
     }
 }
 
@@ -170,6 +198,7 @@ pub async fn create_primitive(State(st): State<AppState>, AppJson(b): AppJson<Pr
         light: None,
         warnings: vec![],
         created_at: now(),
+        footprint: Some(vec![]),
     };
     insert(&st.db, &a, None).await?;
     Ok(Json(a))
@@ -239,6 +268,7 @@ pub async fn create_glb_asset(st: &AppState, file: Vec<u8>, name: String, dims: 
             ));
         }
     }
+    let footprint = glb::footprint_of(&file);
     let id = Uuid::new_v4();
     put_model(st, id, file).await?;
     let a = Asset {
@@ -253,6 +283,7 @@ pub async fn create_glb_asset(st: &AppState, file: Vec<u8>, name: String, dims: 
         light: None,
         warnings,
         created_at: now(),
+        footprint: Some(footprint),
     };
     insert(&st.db, &a, None).await?;
     Ok(a)

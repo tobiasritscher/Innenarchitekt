@@ -693,6 +693,8 @@ impl Tr<'_> {
                         material: None,
                         walkable: asset.primitive.is_some_and(|s| s.walkable()),
                         overlap_ok: asset.primitive == Some(PrimitiveShape::Chair),
+                        footprint: asset.footprint.clone().unwrap_or_default(),
+                        passable: false,
                     },
                 }];
                 if let Some(l) = &asset.light {
@@ -744,6 +746,8 @@ impl Tr<'_> {
                         material,
                         walkable: sh.walkable(),
                         overlap_ok: sh == PrimitiveShape::Chair,
+                        footprint: vec![],
+                        passable: false,
                     },
                 }])?;
                 Ok(format!("{name} ({}×{}×{} cm)", dims[0] / 10, dims[1] / 10, dims[2] / 10))

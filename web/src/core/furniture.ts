@@ -20,6 +20,8 @@ export function instantiateAsset(asset: Asset, x: number, y: number, rotationDeg
         material: asset.primitive === 'Podest' ? 'wood:oak' : null,
         walkable: asset.primitive === 'Podest',
         overlap_ok: asset.primitive === 'Chair',
+        footprint: asset.footprint ?? [],
+        passable: false,
       },
     },
   ]

@@ -602,6 +602,13 @@ label.check {
   stroke-width: 2px;
   fill: color-mix(in srgb, var(--danger) 18%, var(--plan-furn));
 }
+/* bounding box of a shaped item (L-wardrobe): outline only, still clickable */
+.pl-furn polygon.box {
+  fill: transparent;
+  stroke: var(--plan-furn-stroke);
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
 .pl-light circle,
 .pl-light rect {
   fill: var(--surface);

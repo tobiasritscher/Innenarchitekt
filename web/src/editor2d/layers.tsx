@@ -13,7 +13,7 @@ import { fmtArea, fmtLength } from '../core/format'
 import { resolveMaterial } from '../core/materials'
 import { add, dist, leftNormal, mul, norm, pointInPolygon, polyPoints, rotate, sub, type Vec } from './geom'
 import { podiumSteps } from '../core/furniture'
-import { furnitureCorners, lightWorldPos, nodeMap, openingGeom, wallPoints, type NodeMap } from './model'
+import { furnitureCorners, furnitureParts, lightWorldPos, nodeMap, openingGeom, wallPoints, type NodeMap } from './model'
 import { gridLevels, toWorld, type View } from './view'
 
 /** Label font size in px (screen). */
@@ -191,13 +191,17 @@ export const OpeningsLayer = memo(function OpeningsLayer({ floor }: { floor: Flo
 
 export function FurnitureShape({ f, overlap, scale, className = '', interactive = true }: { f: FurnitureInstance; overlap?: boolean; scale: number; className?: string; interactive?: boolean }) {
   const c = furnitureCorners(f)
+  const parts = furnitureParts(f)
   const fs = LABEL_PX / scale
   const [w, d] = f.dims_mm
   const showName = w * scale > f.name.length * 6 + 6 && d * scale > 16
   const props = interactive ? { 'data-k': 'furniture', 'data-id': f.id } : {}
   return (
     <g className={`pl-furn${overlap ? ' overlap' : ''} ${className}`} {...props}>
-      <polygon points={polyPoints(c)} style={f.material ? { fill: resolveMaterial(f.material).color } : undefined} />
+      <polygon className={parts.length ? 'box' : undefined} points={polyPoints(c)} style={f.material && !parts.length ? { fill: resolveMaterial(f.material).color } : undefined} />
+      {parts.map((p, i) => (
+        <polygon key={i} points={polyPoints(p)} style={f.material ? { fill: resolveMaterial(f.material).color } : undefined} />
+      ))}
       {/* front edge (local +y) */}
       <line className="front" x1={c[2][0]} y1={c[2][1]} x2={c[3][0]} y2={c[3][1]} />
       {f.walkable && <StepLines f={f} />}

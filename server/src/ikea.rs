@@ -807,6 +807,7 @@ pub async fn import(st: &AppState, input: &str) -> ApiResult<Asset> {
     }
 
     let id = Uuid::new_v4();
+    let footprint = model.as_ref().map(|(bytes, _)| crate::glb::footprint_of(bytes)).unwrap_or_default();
     let model_url = if let Some((bytes, _)) = model {
         crate::assets::put_model(st, id, bytes).await?;
         Some(format!("/api/assets/{id}/model.glb"))
@@ -832,6 +833,7 @@ pub async fn import(st: &AppState, input: &str) -> ApiResult<Asset> {
         light: lamp.then(|| lamp_light(&text, dims[2])),
         warnings,
         created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        footprint: Some(footprint),
     };
     crate::assets::insert_ikea(st, asset).await
 }

@@ -137,6 +137,24 @@ pub fn furniture_footprint(item: &FurnitureInstance) -> [P; 4] {
     )
 }
 
+/// Plan rectangles the item actually occupies: its footprint parts, or the whole box.
+pub fn footprint_parts(item: &FurnitureInstance) -> Vec<[P; 4]> {
+    if item.footprint.is_empty() {
+        return vec![furniture_footprint(item)];
+    }
+    let (w, d) = (item.dims_mm[0] as f64, item.dims_mm[1] as f64);
+    let c = [item.pos_mm[0] as f64, item.pos_mm[1] as f64];
+    let rot = item.rotation_deg as f64;
+    item.footprint
+        .iter()
+        .map(|r| {
+            let [x0, y0, x1, y1] = r.map(|v| v.clamp(0.0, 1.0) as f64);
+            let local = [((x0 + x1) / 2.0 - 0.5) * w, ((y0 + y1) / 2.0 - 0.5) * d];
+            obb(add(c, rotate(local, rot)), (x1 - x0) * w, (y1 - y0) * d, rot)
+        })
+        .collect()
+}
+
 /// Surface height (mm) of a walkable item at plan point `p`, None if outside its footprint.
 pub fn surface_height_at(item: &FurnitureInstance, p: P) -> Option<f64> {
     if !item.walkable {
@@ -161,7 +179,8 @@ pub fn overlaps(p: &Project) -> Vec<Id> {
     let Some(f) = p.floors.first() else { return vec![] };
     let fps = footprints(f);
     let pieces = wall_pieces(f, &fps, false);
-    let items: Vec<(&FurnitureInstance, [P; 4])> = p.furniture.iter().map(|i| (i, furniture_footprint(i))).collect();
+    let items: Vec<(&FurnitureInstance, Vec<[P; 4]>)> = p.furniture.iter().map(|i| (i, footprint_parts(i))).collect();
+    let any_overlap = |a: &[[P; 4]], b: &[[P; 4]]| a.iter().any(|x| b.iter().any(|y| convex_overlap(x, y, 1.0)));
     let mut out = Vec::new();
     for (i, (a, pa)) in items.iter().enumerate() {
         let za = (a.pos_mm[2] as f64, a.pos_mm[2] as f64 + a.dims_mm[2] as f64);
@@ -177,9 +196,9 @@ pub fn overlaps(p: &Project) -> Vec<Id> {
             if on(b, a) || on(a, b) {
                 return false;
             }
-            za.0 < zb.1 - 1.0 && zb.0 < za.1 - 1.0 && convex_overlap(pa, pb, 1.0)
+            za.0 < zb.1 - 1.0 && zb.0 < za.1 - 1.0 && any_overlap(pa, pb)
         });
-        let hit_wall = pieces.iter().any(|w| za.0 < w.z1 - 1.0 && w.z0 < za.1 - 1.0 && convex_overlap(pa, &w.poly, 1.0));
+        let hit_wall = pieces.iter().any(|w| za.0 < w.z1 - 1.0 && w.z0 < za.1 - 1.0 && pa.iter().any(|x| convex_overlap(x, &w.poly, 1.0)));
         if hit_furniture || hit_wall {
             out.push(a.id);
         }
@@ -198,11 +217,11 @@ pub fn walk_colliders_closed(p: &Project, closed: &std::collections::HashSet<Id>
     let fps = footprints(f);
     let mut out: Vec<Vec<P>> = crate::walls::wall_pieces_closed(f, &fps, true, closed).into_iter().map(|w| w.poly).collect();
     for item in &p.furniture {
-        // low items (rugs) and things hanging above head height don't block
-        if item.walkable || item.dims_mm[2] < 150 || item.pos_mm[2] > 1800 {
+        // low items (rugs), things hanging above head height and items marked passable don't block
+        if item.walkable || item.passable || item.dims_mm[2] < 150 || item.pos_mm[2] > 1800 {
             continue;
         }
-        out.push(furniture_footprint(item).to_vec());
+        out.extend(footprint_parts(item).into_iter().map(|r| r.to_vec()));
     }
     out
 }
@@ -290,6 +309,8 @@ mod tests {
             material: None,
             walkable: false,
             overlap_ok: false,
+            footprint: vec![],
+            passable: false,
         };
         let c = clearances(&f, &item);
         assert_eq!(c.left, Some(1400.0));
@@ -311,6 +332,8 @@ mod tests {
             material: None,
             walkable: true,
             overlap_ok: false,
+            footprint: vec![],
+            passable: false,
         };
         assert_eq!(floor_height_at(&{ let mut q = p.clone(); q.furniture.push(pod.clone()); q }, [2000.0, 1700.0], None), 170.0);
         let table = FurnitureInstance { id: Uuid::new_v4(), name: "Tisch".into(), pos_mm: [2000, 800, 340], dims_mm: [800, 800, 750], walkable: false, ..pod.clone() };
@@ -337,6 +360,8 @@ mod tests {
             material: None,
             walkable: false,
             overlap_ok: false,
+            footprint: vec![],
+            passable: false,
         };
         let chair = FurnitureInstance { id: Uuid::new_v4(), name: "Stuhl".into(), pos_mm: [2000, 2400, 0], dims_mm: [450, 520, 850], ..table.clone() };
         p.furniture = vec![table, chair.clone()];
@@ -352,5 +377,56 @@ mod tests {
         let cols = walk_colliders(&p);
         let end = walk_move(&cols, [2000.0, 2000.0], [0.0, -5000.0], 250.0);
         assert!((end[1] - 350.0).abs() < 1.0, "{end:?}");
+    }
+
+    /// L-shaped wardrobe (2 × 2 m box, arms 600 mm deep along the back and left): the open corner is free.
+    fn l_wardrobe() -> FurnitureInstance {
+        FurnitureInstance {
+            id: Uuid::new_v4(),
+            asset: Uuid::new_v4(),
+            name: "PAX".into(),
+            pos_mm: [1200, 1200, 0],
+            rotation_deg: 0.0,
+            dims_mm: [2000, 2000, 2200],
+            material: None,
+            walkable: false,
+            overlap_ok: false,
+            footprint: vec![[0.0, 0.0, 1.0, 0.3], [0.0, 0.3, 0.3, 1.0]],
+            passable: false,
+        }
+    }
+
+    #[test]
+    fn footprint_parts_follow_rotation() {
+        let mut it = l_wardrobe();
+        it.rotation_deg = 90.0;
+        let parts = footprint_parts(&it);
+        // back arm (local y −1000..−400) ends up right of the centre after turning +x towards +y
+        let c = parts[0].iter().fold([0.0, 0.0], |a, p| add(a, mul(*p, 0.25)));
+        assert!((c[0] - 1900.0).abs() < 0.1 && (c[1] - 1200.0).abs() < 0.1, "{c:?}");
+    }
+
+    #[test]
+    fn walk_into_open_corner_of_l_shape() {
+        let mut p = Project::new(Uuid::new_v4(), "t");
+        p.floors[0] = room();
+        let mut it = l_wardrobe();
+        it.footprint.clear();
+        p.furniture = vec![it.clone()];
+        let from = [3000.0, 3000.0];
+        let blocked = walk_move(&walk_colliders(&p), from, [-1300.0, -1300.0], 250.0);
+        assert!(blocked[0] > 2300.0, "whole box blocks: {blocked:?}");
+        p.furniture[0].footprint = l_wardrobe().footprint;
+        let end = walk_move(&walk_colliders(&p), from, [-1300.0, -1300.0], 250.0);
+        assert!((end[0] - 1700.0).abs() < 1.0 && (end[1] - 1700.0).abs() < 1.0, "{end:?}");
+        // a chair in the free corner doesn't overlap, one inside an arm does
+        let chair = |x, y| FurnitureInstance { id: Uuid::new_v4(), name: "Stuhl".into(), pos_mm: [x, y, 0], dims_mm: [450, 450, 850], footprint: vec![], ..it.clone() };
+        p.furniture.push(chair(1500, 1500));
+        assert!(overlaps(&p).is_empty(), "{:?}", overlaps(&p));
+        p.furniture.push(chair(1200, 400));
+        assert_eq!(overlaps(&p).len(), 2);
+        // passable: no collider at all
+        p.furniture = vec![FurnitureInstance { passable: true, ..l_wardrobe() }];
+        assert_eq!(walk_colliders(&p).len(), 4);
     }
 }

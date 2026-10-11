@@ -10,6 +10,7 @@ import type { RoomMeta } from '../core/generated/RoomMeta'
 import type { Wall } from '../core/generated/Wall'
 import { fmtArea, fmtLength, fmtNumber } from '../core/format'
 import { useOverlaps } from '../core/derived'
+import { useAssets } from '../state/assets'
 import { useEditor } from '../state/editor'
 import { LengthField, MaterialPicker, NumberField } from '../ui/fields'
 import { dist } from './geom'
@@ -362,6 +363,7 @@ function FurnitureProps({ src, it, onDelete }: { src: PlanSource; it: FurnitureI
         </button>
       )}
       <OverlapOk src={src} it={it} />
+      <Footprint src={src} it={it} />
       {lights.length > 0 && (
         <>
           <h3>Lichtquellen</h3>
@@ -398,6 +400,38 @@ function OverlapOk({ src, it }: { src: PlanSource; it: FurnitureInstance }) {
       {differ.length > 0 && (
         <button className="link small" onClick={() => src.commit(differ.map((f) => ({ op: 'PutFurniture' as const, item: { ...f, overlap_ok: it.overlap_ok } })), 'Überlappen für gleiche Möbel')}>
           Für alle {same.length} «{it.name}» übernehmen
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Shape from the model (L-wardrobe: only the arms block) and «begehbar» (never blocks walking). */
+function Footprint({ src, it }: { src: PlanSource; it: FurnitureInstance }) {
+  const model = useAssets((s) => s.assets.find((a) => a.id === it.asset)?.footprint)
+  const stale = model != null && JSON.stringify(model) !== JSON.stringify(it.footprint)
+  const same = src.project.furniture.filter((f) => f.asset === it.asset)
+  return (
+    <div className="field">
+      <label className="check">
+        <input type="checkbox" checked={it.passable} onChange={(e) => src.commit([{ op: 'PutFurniture', item: { ...it, passable: e.target.checked } }], e.target.checked ? 'Möbel begehbar' : 'Möbel blockiert')} />
+        Beim Begehen durchlaufbar
+      </label>
+      <span className="muted small">
+        {it.footprint.length ? `Kollision nach Modellform (${it.footprint.length} Teile).` : 'Kollision mit der ganzen Box.'}
+      </span>
+      {stale && model && (
+        <button
+          className="link small"
+          onClick={() =>
+            src.commit(
+              same.map((f) => ({ op: 'PutFurniture' as const, item: { ...f, footprint: model } })),
+              'Grundfläche aus Modell',
+            )
+          }
+        >
+          {model.length ? `Grundfläche aus Modell übernehmen (${model.length} Teile)` : 'Ganze Box als Grundfläche'}
+          {same.length > 1 ? ` – alle ${same.length}` : ''}
         </button>
       )}
     </div>
