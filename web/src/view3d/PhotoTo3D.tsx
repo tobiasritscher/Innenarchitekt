@@ -45,7 +45,7 @@ export function PhotoTo3D({ enabled }: { enabled: boolean }) {
   const [open, setOpen] = useState(false)
   const [photo, setPhoto] = useState<{ blob: Blob; url: string } | null>(null)
   const [name, setName] = useState('')
-  const [dims, setDims] = useState<[number, number, number]>([800, 800, 800])
+  const [dims, setDims] = useState<[number | null, number | null, number | null]>([null, null, null])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const jobs = usePhotoJobs((s) => s.jobs)
@@ -78,7 +78,7 @@ export function PhotoTo3D({ enabled }: { enabled: boolean }) {
       {open && !enabled && <p className="muted v3d-small">Auf dem Server nicht eingerichtet (PHOTO3D_DIR, siehe deploy/photo3d-setup.sh).</p>}
       {open && enabled && (
         <div className="form v3d-subform">
-          <p className="muted v3d-small">Ein Foto eines einzelnen Möbels, möglichst ganz im Bild und schräg von vorne. Der Hintergrund wird automatisch entfernt. Dauert ca. 5–10 Minuten.</p>
+          <p className="muted v3d-small">Ein Foto eines einzelnen Möbels, möglichst ganz im Bild und schräg von vorne. Der Hintergrund wird automatisch entfernt. Dauert ca. 4 Minuten.</p>
           <label className="field">
             Foto
             <input
@@ -104,8 +104,8 @@ export function PhotoTo3D({ enabled }: { enabled: boolean }) {
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. Sessel Oma" />
           </label>
           <PhotoDims dims={dims} onChange={setDims} />
-          <p className="muted v3d-small">Masse sind Pflicht – die KI kennt die echte Grösse nicht.</p>
-          <button className="primary" onClick={start} disabled={busy || !photo}>
+          <p className="muted v3d-small">Mindestens ein Mass angeben (z. B. die Höhe) – die KI kennt die echte Grösse nicht. Leere Felder folgen den Proportionen des Modells.</p>
+          <button className="primary" onClick={start} disabled={busy || !photo || dims.every((d) => d == null)}>
             {busy ? 'Lade hoch …' : '3D-Modell erzeugen'}
           </button>
           {error && <p className="error v3d-small">{error}</p>}
@@ -138,7 +138,7 @@ export function PhotoTo3D({ enabled }: { enabled: boolean }) {
   )
 }
 
-function PhotoDims({ dims, onChange }: { dims: [number, number, number]; onChange: (d: [number, number, number]) => void }) {
+function PhotoDims({ dims, onChange }: { dims: (number | null)[]; onChange: (d: [number | null, number | null, number | null]) => void }) {
   const labels = ['Breite', 'Tiefe', 'Höhe']
   return (
     <div className="v3d-dims">
@@ -149,10 +149,12 @@ function PhotoDims({ dims, onChange }: { dims: [number, number, number]; onChang
             type="number"
             min={1}
             step={1}
-            value={Math.round(v / 10)}
+            placeholder="auto"
+            value={v == null ? '' : Math.round(v / 10)}
             onChange={(e) => {
-              const next = [...dims] as [number, number, number]
-              next[i] = Math.max(1, Math.round(Number(e.target.value) * 10) || 10)
+              const next = [...dims] as [number | null, number | null, number | null]
+              const n = Number(e.target.value)
+              next[i] = e.target.value.trim() === '' || !(n > 0) ? null : Math.round(n * 10)
               onChange(next)
             }}
           />

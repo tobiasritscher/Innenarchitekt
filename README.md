@@ -72,7 +72,7 @@ Läuft nativ auf dem Server (Docker hat keinen Metal-Zugriff): `bash ~/innenarch
 DINOv3 und RMBG-2.0 sind «gated» → einmal mit dem HF-Konto des Tokens Zugriff anfordern. RMBG-2.0 ist CC BY-NC
 (nur privat). Metal-Beschleunigung braucht Xcode + Metal Toolchain (`DEVELOPER_DIR=/Applications/Xcode.app/…`,
 `xcodebuild -downloadComponent MetalToolchain`), Eigen (`brew install eigen`) und `-std=c++20` in den
-`deps/*/setup.py` (Torch ≥ 2.14); sonst langsamerer Python-Baker. Pro Modell ca. 5–10 Min., eigene Job-Queue.
+`deps/*/setup.py` (Torch ≥ 2.14); sonst langsamerer Python-Baker. Pro Modell ca. 4 Min. auf dem M3 Ultra (davon ~2.5 Min. Laden des Modells), eigene Job-Queue.
 
 ## Deployment (Mac «jarvis»)
 

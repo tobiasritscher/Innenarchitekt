@@ -32,6 +32,7 @@ const TARGET_FACES: u32 = 50_000;
 struct Payload {
     image_key: String,
     name: String,
+    /// 0 = derive from the model's proportions.
     dims_mm: [u32; 3],
     seed: u32,
 }
@@ -60,14 +61,15 @@ pub async fn upload(State(st): State<AppState>, mut mp: Multipart) -> ApiResult<
     }
     let photo = photo.ok_or_else(|| ApiError::unprocessable("Feld «photo» fehlt"))?;
     let ext = sniff_image(&photo).ok_or_else(|| ApiError::unprocessable("Foto bitte als JPG oder PNG"))?;
-    // The model does not know the real size: dimensions are mandatory.
-    let [Some(w), Some(d), Some(h)] = dims else {
-        return Err(ApiError::unprocessable("Bitte Breite, Tiefe und Höhe angeben – das Modell kennt die echte Grösse nicht"));
-    };
+    // The model does not know the real size: at least one dimension is mandatory; missing ones follow the
+    // generated model's proportions.
+    if dims.iter().all(Option::is_none) {
+        return Err(ApiError::unprocessable("Bitte mindestens ein Mass angeben (z. B. die Höhe) – die KI kennt die echte Grösse nicht"));
+    }
     let job_id = Uuid::new_v4();
     let image_key = format!("photos/{job_id}/photo.{ext}");
     st.store.put(&ObjPath::from(image_key.as_str()), PutPayload::from(photo)).await?;
-    let payload = Payload { image_key, name: if name.is_empty() { "Möbel aus Foto".into() } else { name }, dims_mm: [w, d, h], seed };
+    let payload = Payload { image_key, name: if name.is_empty() { "Möbel aus Foto".into() } else { name }, dims_mm: dims.map(|d| d.unwrap_or(0)), seed };
     sqlx::query("INSERT INTO jobs (id, kind, status, progress, message, payload) VALUES ($1, $2, 'queued', 0, 'In Warteschlange', $3)")
         .bind(job_id)
         .bind(KIND_PHOTO3D)
@@ -150,10 +152,24 @@ pub async fn run(st: &AppState, job_id: Uuid, payload: Value) -> Result<Value, S
     let glb = glb?;
     send_progress(st, job_id, 0.97, "In die Bibliothek übernehmen");
     let thumb = Some(format!("/api/files/{}", p.image_key));
-    let asset = crate::assets::create_glb_asset(st, glb, p.name, p.dims_mm.map(Some), AssetKind::Photo, thumb)
+    let dims = complete_dims(p.dims_mm, crate::glb::bbox(&glb).map(|b| b.wdh_mm()).unwrap_or([0; 3]));
+    let asset = crate::assets::create_glb_asset(st, glb, p.name, dims.map(Some), AssetKind::Photo, thumb)
         .await
         .map_err(|e| format!("Modell nicht übernehmbar: {}", e.body["error"].as_str().unwrap_or("unbekannter Fehler")))?;
     serde_json::to_value(&asset).map_err(|e| e.to_string())
+}
+
+/// Fill missing (0) dims from the model's proportions, scaled like the given ones (mean ratio).
+fn complete_dims(given: [u32; 3], model: [u32; 3]) -> [u32; 3] {
+    let ratios: Vec<f64> = (0..3).filter(|&i| given[i] > 0 && model[i] > 0).map(|i| given[i] as f64 / model[i] as f64).collect();
+    let k = if ratios.is_empty() { 1.0 } else { ratios.iter().sum::<f64>() / ratios.len() as f64 };
+    let mut out = given;
+    for i in 0..3 {
+        if out[i] == 0 {
+            out[i] = ((model[i] as f64 * k).round() as u32).max(1);
+        }
+    }
+    out
 }
 
 async fn generate(st: &AppState, job_id: Uuid, dir: &FsPath, input: &FsPath, out_base: &FsPath, seed: u32) -> Result<(), String> {
@@ -233,6 +249,13 @@ async fn generate(st: &AppState, job_id: Uuid, dir: &FsPath, input: &FsPath, out
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_dims_follow_model_proportions() {
+        // model normalised to 1 m on its longest axis; user gives only the height 900 mm
+        assert_eq!(complete_dims([0, 0, 900], [600, 500, 1000]), [540, 450, 900]);
+        assert_eq!(complete_dims([800, 400, 900], [600, 500, 1000]), [800, 400, 900]);
+    }
 
     #[test]
     fn stages_are_monotonic() {

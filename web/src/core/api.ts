@@ -126,13 +126,11 @@ export const api = {
   deleteAsset: (id: string) => req<void>('DELETE', `/assets/${id}`),
   importIkea: (url: string) => req<Asset>('POST', '/assets/ikea', { url }),
   /** «Möbel aus Foto»: starts a job (TRELLIS.2, several minutes); the job result is the new asset. */
-  fromPhoto: (photo: Blob, name: string, dims: [number, number, number]) => {
+  fromPhoto: (photo: Blob, name: string, dims: (number | null)[]) => {
     const fd = new FormData()
     fd.append('photo', photo, 'foto.jpg')
     fd.append('name', name)
-    fd.append('w_mm', String(dims[0]))
-    fd.append('d_mm', String(dims[1]))
-    fd.append('h_mm', String(dims[2]))
+    ;['w_mm', 'd_mm', 'h_mm'].forEach((k, i) => dims[i] != null && fd.append(k, String(dims[i])))
     return req<{ job_id: string }>('POST', '/assets/from-photo', fd)
   },
   uploadGlb: (file: File, name: string, dims: [number, number, number]) => {
