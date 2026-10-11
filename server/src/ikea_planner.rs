@@ -82,8 +82,8 @@ fn range_label(r: &str) -> String {
 }
 
 pub async fn import(st: &AppState, link: PlannerLink) -> ApiResult<Asset> {
-    // «VPC2»: designs assembled from IKEA's article models (older «VPC» imports were boxes only)
-    let article = format!("VPC2-{}", link.code);
+    // «VPC3»: assembled from IKEA article models with fitting (VPC2: unfitted, VPC: boxes only)
+    let article = format!("VPC3-{}", link.code);
     if let Some(a) = crate::assets::find_by_article(&st.db, &article).await? {
         return Ok(a);
     }
@@ -147,13 +147,45 @@ pub async fn import(st: &AppState, link: PlannerLink) -> ApiResult<Asset> {
     crate::assets::insert_ikea(st, a).await
 }
 
-/// Hidden mechanics: never drawn, no model fetched.
-const HIDDEN: &[&str] = &["hinge", "cord", "driver", "power"];
+/// Hidden mechanics (hinges, LED drivers, cables): never drawn, no model fetched. Not «pax-hinge-frame»/«-door».
+fn hidden(cat: &str) -> bool {
+    let c = cat.to_lowercase();
+    c.ends_with("hinge") || ["cord", "driver", "power"].iter().any(|h| c.contains(h))
+}
+
+/// Footprint of the root carcasses (mm, x/z) with `margin`; parts outside are stray positions in the data.
+fn root_bounds(arts: &[Value], margin: f64) -> Option<([f64; 3], [f64; 3])> {
+    let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
+    for a in arts.iter().filter(|a| a["parent_ids"].as_array().is_none_or(|p| p.is_empty())) {
+        let (c, d, rot) = (v3(&a["transform"]["position"]), v3(&a["dimensions"]), v3(&a["transform"]["rotation"]));
+        if d.iter().any(|x| *x < 1.0) {
+            continue;
+        }
+        for i in 0..8 {
+            let l = [
+                if i & 1 == 0 { -d[0] } else { d[0] } / 2.0,
+                if i & 2 == 0 { -d[1] } else { d[1] } / 2.0,
+                if i & 4 == 0 { -d[2] } else { d[2] } / 2.0,
+            ];
+            let r = rotate(l, rot);
+            for k in 0..3 {
+                lo[k] = lo[k].min(c[k] + r[k] - margin);
+                hi[k] = hi[k].max(c[k] + r[k] + margin);
+            }
+        }
+    }
+    (lo[0] < hi[0]).then_some((lo, hi))
+}
+
+fn within(b: Option<([f64; 3], [f64; 3])>, c: [f64; 3]) -> bool {
+    b.is_none_or(|(lo, hi)| (0..3).all(|k| c[k] >= lo[k] && c[k] <= hi[k]))
+}
 /// At most this many different articles are fetched per design.
 const MAX_MODELS: usize = 80;
 
 fn article_no(a: &Value) -> Option<String> {
-    let id = a["product_id"].as_str()?.strip_prefix("ART-")?;
+    let p = a["product_id"].as_str()?;
+    let id = p.strip_prefix("ART-").unwrap_or(p);
     (id.len() == 8 && id.bytes().all(|b| b.is_ascii_digit())).then(|| id.to_string())
 }
 
@@ -163,7 +195,8 @@ async fn assemble(st: &AppState, link: &PlannerLink, arts: &[Value]) -> ApiResul
     use futures::StreamExt;
     let by_id: BTreeMap<i64, &Value> = arts.iter().filter_map(|a| Some((a["id"].as_i64()?, a))).collect();
     let places = places(arts);
-    let visible = |p: &Place| !HIDDEN.iter().any(|h| by_id[&p.id]["category"].as_str().unwrap_or("").to_lowercase().contains(h));
+    let bounds = root_bounds(arts, 150.0);
+    let visible = |p: &Place| !hidden(by_id[&p.id]["category"].as_str().unwrap_or("")) && within(bounds, p.c);
     let mut wanted: Vec<String> = places.iter().filter(|p| visible(p)).filter_map(|p| article_no(by_id[&p.id])).collect();
     wanted.sort();
     wanted.dedup();
@@ -189,13 +222,14 @@ async fn assemble(st: &AppState, link: &PlannerLink, arts: &[Value]) -> ApiResul
 pub fn build(arts: &[Value], fetched: BTreeMap<String, Vec<u8>>) -> ApiResult<(Vec<u8>, Vec<String>)> {
     let by_id: BTreeMap<i64, &Value> = arts.iter().filter_map(|a| Some((a["id"].as_i64()?, a))).collect();
     let places = places(arts);
-    let visible = |p: &Place| !HIDDEN.iter().any(|h| by_id[&p.id]["category"].as_str().unwrap_or("").to_lowercase().contains(h));
+    let bounds = root_bounds(arts, 150.0);
+    let visible = |p: &Place| !hidden(by_id[&p.id]["category"].as_str().unwrap_or("")) && within(bounds, p.c);
     // model bytes + its bbox centre (metres, model frame)
-    let mut models: BTreeMap<String, (Vec<u8>, [f64; 3])> = BTreeMap::new();
+    let mut models: BTreeMap<String, (Vec<u8>, [f64; 3], [f64; 3])> = BTreeMap::new();
     for (art, glb) in fetched {
         if let Ok(bb) = crate::glb::bbox(&glb) {
             let c = [(bb.min[0] + bb.max[0]) / 2.0, (bb.min[1] + bb.max[1]) / 2.0, (bb.min[2] + bb.max[2]) / 2.0];
-            models.insert(art, (glb, c));
+            models.insert(art, (glb, c, bb.size()));
         }
     }
     let mut instances: BTreeMap<String, Vec<crate::glb::Mat4>> = BTreeMap::new();
@@ -204,13 +238,19 @@ pub fn build(arts: &[Value], fetched: BTreeMap<String, Vec<u8>>) -> ApiResult<(V
     for p in places.iter().filter(|p| visible(p)) {
         total += 1;
         let Some(art) = article_no(by_id[&p.id]) else { continue };
-        let Some((_, bc)) = models.get(&art) else { continue };
-        instances.entry(art).or_default().push(part_matrix(p, *bc));
+        let Some((_, bc, size)) = models.get(&art) else { continue };
+        if is_hardware_pair(*size, p.dims) {
+            // runner modelled as the pair while the planner lists each side: drop, it sits inside the drawer
+            modelled.insert(p.id);
+            continue;
+        }
+        instances.entry(art).or_default().push(part_matrix(p, *bc, *size));
         modelled.insert(p.id);
     }
-    let rest: Vec<Solid> = solids(arts).into_iter().filter(|s| !modelled.contains(&s.art)).collect();
+    let shown: std::collections::BTreeSet<i64> = places.iter().filter(|p| visible(p)).map(|p| p.id).collect();
+    let rest: Vec<Solid> = solids(arts).into_iter().filter(|s| shown.contains(&s.art) && !modelled.contains(&s.art)).collect();
     let boxes = (!rest.is_empty()).then(|| write_glb_at(&rest, [0.0; 3]));
-    let mut sources: Vec<(&[u8], Vec<crate::glb::Mat4>)> = models.iter().filter_map(|(art, (glb, _))| Some((glb.as_slice(), instances.get(art)?.clone()))).collect();
+    let mut sources: Vec<(&[u8], Vec<crate::glb::Mat4>)> = models.iter().filter_map(|(art, (glb, _, _))| Some((glb.as_slice(), instances.get(art)?.clone()))).collect();
     if let Some(b) = &boxes {
         sources.push((b.as_slice(), vec![crate::glb::IDENTITY]));
     }
@@ -227,15 +267,55 @@ pub fn build(arts: &[Value], fetched: BTreeMap<String, Vec<u8>>) -> ApiResult<(V
     Ok((glb, warnings))
 }
 
-/// Model (metres, bbox centre `bc`) → IKEA world: centre on the part, rotate like the part (z, x, y).
-fn part_matrix(p: &Place, bc: [f64; 3]) -> crate::glb::Mat4 {
+type M3 = [[f64; 3]; 3]; // rows
+
+fn m3mul(a: &M3, b: &M3) -> M3 {
+    let mut r = [[0.0; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            r[i][j] = (0..3).map(|k| a[i][k] * b[k][j]).sum();
+        }
+    }
+    r
+}
+
+/// How to fit an article model to its planner part: a 90° turn when the model's axes are swapped against
+/// the planner's (e.g. tray dividers), and per-axis squeezing where the model is far larger than the
+/// part (basket rails modelled as a 200 mm wide pair, LED strips with mounting depth) so nothing pokes
+/// out of the carcass. Small deviations (KALLAX inserts are drawn smaller in the planner) stay true to size.
+fn fit_model(size_m: [f64; 3], icf_mm: [f64; 3]) -> M3 {
+    let s = size_m.map(|v| v * 1000.0);
+    let err = |q: [f64; 3]| (0..3).filter(|&k| icf_mm[k] > 1.0 && q[k] > 1.0).map(|k| (q[k] / icf_mm[k]).ln().abs()).sum::<f64>();
+    // candidates: identity, x↔z (90° about y), y↔z (90° about x); rows map model → part axes
+    let cands: [(M3, [f64; 3]); 3] = [
+        ([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [s[0], s[1], s[2]]),
+        ([[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]], [s[2], s[1], s[0]]),
+        ([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]], [s[0], s[2], s[1]]),
+    ];
+    let e0 = err(cands[0].1);
+    let (perm, q) = cands.iter().skip(1).filter(|c| err(c.1) < e0 - 0.3).min_by(|a, b| err(a.1).total_cmp(&err(b.1))).copied().unwrap_or(cands[0]);
+    let k = |i: usize| if icf_mm[i] > 1.0 && q[i] > icf_mm[i] * 1.3 && q[i] - icf_mm[i] > 30.0 { icf_mm[i] / q[i] } else { 1.0 };
+    let scale = [[k(0), 0.0, 0.0], [0.0, k(1), 0.0], [0.0, 0.0, k(2)]];
+    m3mul(&scale, &perm)
+}
+
+/// A thin planner part (< 50 mm on some axis) whose model is over 4× as large there: drawer/basket runners
+/// that IKEA models as a pair for both sides. Placing the pair at each side would stick out of the carcass.
+fn is_hardware_pair(size_m: [f64; 3], icf_mm: [f64; 3]) -> bool {
+    (0..3).any(|k| icf_mm[k] > 0.5 && icf_mm[k] < 50.0 && size_m[k] * 1000.0 > (4.0 * icf_mm[k]).max(100.0))
+}
+
+/// Model (metres, bbox centre `bc`, size `size`) → IKEA world: fitted (see [`fit_model`]), rotated like the
+/// part (z, x, y) and centred on it.
+fn part_matrix(p: &Place, bc: [f64; 3], size: [f64; 3]) -> crate::glb::Mat4 {
     let ex = rotate([1.0, 0.0, 0.0], p.rot);
     let ey = rotate([0.0, 1.0, 0.0], p.rot);
     let ez = rotate([0.0, 0.0, 1.0], p.rot);
+    let r: M3 = [[ex[0], ey[0], ez[0]], [ex[1], ey[1], ez[1]], [ex[2], ey[2], ez[2]]];
+    let l = m3mul(&r, &fit_model(size, p.dims));
     let t = [p.c[0] / 1000.0, p.c[1] / 1000.0, p.c[2] / 1000.0];
-    // translation = t − R·bc
-    let rb = [ex[0] * bc[0] + ey[0] * bc[1] + ez[0] * bc[2], ex[1] * bc[0] + ey[1] * bc[1] + ez[1] * bc[2], ex[2] * bc[0] + ey[2] * bc[1] + ez[2] * bc[2]];
-    [ex[0], ex[1], ex[2], 0.0, ey[0], ey[1], ey[2], 0.0, ez[0], ez[1], ez[2], 0.0, t[0] - rb[0], t[1] - rb[1], t[2] - rb[2], 1.0]
+    let lb: [f64; 3] = std::array::from_fn(|i| (0..3).map(|k| l[i][k] * bc[k]).sum());
+    [l[0][0], l[1][0], l[2][0], 0.0, l[0][1], l[1][1], l[2][1], 0.0, l[0][2], l[1][2], l[2][2], 0.0, t[0] - lb[0], t[1] - lb[1], t[2] - lb[2], 1.0]
 }
 
 // ------------------------------------------------------------------ geometry
@@ -303,6 +383,7 @@ pub fn places(arts: &[Value]) -> Vec<Place> {
     xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
     zs.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let mid = [xs.get(xs.len() / 2).copied().unwrap_or(0.0), zs.get(zs.len() / 2).copied().unwrap_or(0.0)];
+    let bounds = root_bounds(arts, 150.0);
     let mut out = Vec::new();
     for a in arts {
         let Some(id) = a["id"].as_i64() else { continue };
@@ -312,13 +393,17 @@ pub fn places(arts: &[Value]) -> Vec<Place> {
         }
         let rot = v3(&a["transform"]["rotation"]);
         let mut c = v3(&a["transform"]["position"]);
-        // outlier position: rebuild from the children's centres (e.g. corner add-ons)
-        if (c[0] - mid[0]).hypot(c[2] - mid[1]) > 3000.0 {
+        // outlier position. Seen in the data: exactly doubled (corner add-on, drawer mat) → halve; otherwise
+        // rebuild from the children's centres
+        let outlier = if bounds.is_some() { !within(bounds, c) } else { (c[0] - mid[0]).hypot(c[2] - mid[1]) > 3000.0 };
+        if outlier && within(bounds, c.map(|x| x / 2.0)) {
+            c = c.map(|x| x / 2.0);
+        } else if outlier {
             let kids: Vec<[f64; 3]> = a["child_ids"]
                 .as_array()
                 .map(|k| k.iter().filter_map(|i| by_id.get(&i.as_i64()?)).map(|k| v3(&k["transform"]["position"])).collect())
                 .unwrap_or_default();
-            let kids: Vec<[f64; 3]> = kids.into_iter().filter(|k| (k[0] - mid[0]).hypot(k[2] - mid[1]) < 3000.0).collect();
+            let kids: Vec<[f64; 3]> = kids.into_iter().filter(|k| within(bounds, *k) && (k[0] - mid[0]).hypot(k[2] - mid[1]) < 3000.0).collect();
             if kids.is_empty() {
                 continue;
             }
@@ -544,6 +629,15 @@ mod tests {
                 models.insert(a.to_string(), std::fs::read(e.path()).unwrap());
             }
         }
+        for a in arts {
+            if let Some(n) = article_no(a) {
+                if let Some(g) = models.get(&n) {
+                    let s = crate::glb::bbox(g).unwrap().size();
+                    let d = v3(&a["dimensions"]);
+                    println!("{:>3} {:<34} icf {:>5.0} {:>5.0} {:>5.0}  model {:>5.0} {:>5.0} {:>5.0}", a["id"], a["category"].as_str().unwrap_or(""), d[0], d[1], d[2], s[0] * 1000.0, s[1] * 1000.0, s[2] * 1000.0);
+                }
+            }
+        }
         let (glb, warnings) = build(arts, models).map_err(|e| format!("{e:?}")).unwrap();
         std::fs::write(format!("{dir}/assembled.glb"), &glb).unwrap();
         println!("{warnings:?} {} KB, bbox {:?}", glb.len() / 1024, crate::glb::bbox(&glb).unwrap().wdh_mm());
@@ -554,7 +648,7 @@ mod tests {
         let s = vec![Solid { art: 1, c: [0.0, 500.0, 0.0], half: [500.0, 500.0, 200.0], rot: [0.0; 3], mat: Mat { color: [1.0; 3], metallic: 0.0, roughness: 0.5 } }];
         let a = write_glb_at(&s, [0.0; 3]);
         let p = Place { id: 1, c: [2000.0, 500.0, 0.0], dims: [1000.0, 1000.0, 400.0], rot: [0.0, 90.0, 0.0] };
-        let m = vec![crate::glb::IDENTITY, part_matrix(&p, [0.0, 0.5, 0.0])];
+        let m = vec![crate::glb::IDENTITY, part_matrix(&p, [0.0, 0.5, 0.0], [1.0, 1.0, 0.4])];
         let glb = crate::glb::merge(&[(a.as_slice(), m)]).unwrap();
         let j = crate::glb::json_chunk(&glb).unwrap();
         assert_eq!(j["meshes"].as_array().unwrap().len(), 1, "mesh shared");
