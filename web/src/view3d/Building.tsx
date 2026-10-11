@@ -220,8 +220,17 @@ function GlassFrame({ wall, floor, height, pp }: { wall: Wall; floor: Floor; hei
 /** In 'shadow' mode the ceiling is invisible to the camera (no colour/depth writes) but still renders into
  *  shadow maps, so the sun only enters through windows even in the dollhouse view. */
 function Ceiling({ geo, material, visible }: { geo: BufferGeometry; material: Material; visible: boolean }) {
-  return <mesh geometry={geo} material={visible ? material : mats.shadowOnly()} castShadow receiveShadow={visible} raycast={visible ? undefined : noRaycast} />
+  return (
+    <>
+      <mesh geometry={geo} material={visible ? material : mats.shadowOnly()} castShadow receiveShadow={visible} raycast={visible ? undefined : noRaycast} />
+      {/* Shadow-only slab above the ceiling: wall tops and ceiling sit at the same height, so with the shadow bias
+          a few cm below the ceiling counted as sunlit (bright seam along the walls). A deeper occluder closes it. */}
+      <mesh geometry={geo} material={mats.shadowOnly()} position={[0, CEILING_SLAB_M, 0]} castShadow raycast={noRaycast} />
+    </>
+  )
 }
+
+const CEILING_SLAB_M = 0.3
 
 /** A box from the shared unit geometry. */
 function Box({ p, s, material, cast = true, ...rest }: { p: [number, number, number]; s: [number, number, number]; material: Material; cast?: boolean } & Record<string, unknown>) {
