@@ -60,6 +60,7 @@ export function Daylight({ walk, bounds, mapSize, lampLux }: { walk: boolean; bo
       shader.fragmentShader = 'uniform float skyScale;\n' + shader.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', 'gl_FragColor = vec4( texColor * skyScale, 1.0 );')
     }
     mat.side = BackSide
+    s.userData.noPathTrace = true // replaced by an environment map in the path tracer
     return s
   }, [])
   useEffect(
@@ -77,6 +78,7 @@ export function Daylight({ walk, bounds, mapSize, lampLux }: { walk: boolean; bo
   const keyLux = Math.max(walk ? hemiLux : dl.skyLux * 0.6 + dl.sunLux * sinEl * 0.3, lampLux, 0.4)
   const scale = (exposure * (walk ? 3 : 2.6)) / keyLux
   live.lightScale = scale
+  live.sky = { skyLux: dl.skyLux, sunLux: dl.sunLux, sinEl, day: dl.day, clearness }
 
   const D = bounds.radius + 30
   const r3 = Math.hypot(bounds.radius, 1.5) + 0.5
