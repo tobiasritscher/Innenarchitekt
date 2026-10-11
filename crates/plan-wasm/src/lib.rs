@@ -100,6 +100,14 @@ impl PlanEngine {
     pub fn cmd_delete_furniture(&self, item: &str) -> Result<JsValue, JsError> {
         to_js(&commands::delete_furniture(&self.project, id(item)?).map_err(op_err)?)
     }
+    /// Ops that put `template` (a Light) on a surface point with outward normal; `furniture` = '' for none.
+    #[allow(clippy::too_many_arguments)]
+    pub fn cmd_place_light(&self, template: JsValue, x: f64, y: f64, z: f64, nx: f64, ny: f64, nz: f64, furniture: &str) -> Result<JsValue, JsError> {
+        let t: plan_core::Light = from_js(template)?;
+        let f = if furniture.is_empty() { None } else { Some(id(furniture)?) };
+        let l = plan_core::lights::place_light(&self.project, t, [x, y, z], [nx, ny, nz], f);
+        to_js(&vec![plan_core::Op::PutLight { light: l }])
+    }
     pub fn cmd_transform_floor(&self, floor: &str, scale: f64, ox: f64, oy: f64, tx: f64, ty: f64) -> Result<JsValue, JsError> {
         to_js(&commands::transform_floor(&self.project, id(floor)?, scale, [ox, oy], [tx, ty]).map_err(op_err)?)
     }
