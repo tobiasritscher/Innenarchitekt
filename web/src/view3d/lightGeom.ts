@@ -2,6 +2,7 @@
 import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
 import type { GlowFace } from '../core/generated/GlowFace'
 import type { Light } from '../core/generated/Light'
+import type { LightKind } from '../core/generated/LightKind'
 
 export type V3 = [number, number, number]
 export const LED_LM_PER_M = 900
@@ -54,6 +55,26 @@ export function glowLuminance(face: GlowFace, dims: V3, lumen: number): number {
   if (face !== 'All') return surfaceIntensity(face, dims, lumen)
   const [w, d, h] = dims.map((v) => v / 1000)
   return lumen / (Math.PI * Math.max(1e-4, 2 * (w * d + w * h + d * h)))
+}
+
+/** A surface point (plan mm, z up) with outward normal and the furniture it belongs to. */
+export type Mount = { at: V3; normal: V3; furniture: string | null }
+
+/** Where a lamp of type `tool` goes for a clicked surface: area panels only exist flat under the ceiling
+ *  (they always shine down), so they go to the ceiling above the hit – moved clear of a clicked wall by half
+ *  their size (`sizeMm`) plus a gap; everything else stays put. */
+export function mountFor(tool: string, h: Mount, ceilingMm: number, sizeMm = 0): Mount {
+  if (tool !== 'Area') return h
+  const flat = Math.hypot(h.normal[0], h.normal[1])
+  const off = flat > 0.7 ? sizeMm / 2 + 30 : 0
+  const nx = flat > 0 ? h.normal[0] / flat : 0
+  const ny = flat > 0 ? h.normal[1] / flat : 0
+  return { at: [h.at[0] + nx * off, h.at[1] + ny * off, ceilingMm], normal: [0, 0, -1], furniture: null }
+}
+
+/** An uplight always points up, whatever surface it was put on (the heading from the surface is kept). */
+export function keepUplight(tool: string, kind: LightKind): LightKind {
+  return tool === 'Uplight' && kind.type === 'Spot' ? { ...kind, tilt_deg: 180 } : kind
 }
 
 /** `n` turned towards the viewer (ray direction `dir`). */

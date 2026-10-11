@@ -27,7 +27,7 @@ import { QUALITY, QUALITY_LABEL, RendererSetup } from './common'
 import { Daylight } from './Daylight'
 import { DoorsButton, useDoorIds } from './doors'
 import { FurnitureLayer, type FurnitureHandlers } from './Furniture'
-import { LED_KELVIN, LED_LM_PER_M, aimAt, lightDir, stripFromDrag, type V3 } from './lightGeom'
+import { LED_KELVIN, LED_LM_PER_M, aimAt, keepUplight, lightDir, mountFor, stripFromDrag, type V3 } from './lightGeom'
 import { LightMarkers, LightRig, usePlacedLights, type LightHandlers, type PlacedLight } from './Lights'
 import { LAMP_TEMPLATES, planeHit, plateAssetId, surfaceHit, type HitCtx, type SurfaceHit, type TemplateKey } from './lightTools'
 import { DaylightControls, LampList, LightScenes, saveCanvasPng, useLampLux } from './Mood'
@@ -40,15 +40,15 @@ const TOOLS: [LightTool, string, string][] = [
   ['Point', 'Deckenleuchte', 'Boden anklicken = Decke darüber, Wand/Möbel = dort'],
   ['Spot', 'Spot', 'Strahlt von der Fläche weg: Decke nach unten, Wand in den Raum'],
   ['Uplight', 'Uplight', 'Auf Boden oder Möbel: strahlt nach oben (indirektes Licht)'],
-  ['Area', 'Leuchtfläche', 'Flaches Panel, Boden anklicken = an die Decke'],
+  ['Area', 'Leuchtfläche', 'Flaches Panel, immer an der Decke über der angeklickten Stelle'],
   ['Strip', 'LED-Streifen', 'Auf einer Fläche von Anfang bis Ende ziehen'],
   ['Glow', 'Objekt leuchten lassen', 'Möbel anklicken: es wird zur Leuchte'],
 ]
 const HINT: Record<LightTool, string> = {
   Point: 'Deckenleuchte setzen: Boden anklicken = an die Decke darüber, Wand oder Möbel = dort · Shift = weitere · Esc = fertig',
   Spot: 'Spot setzen: Boden = an die Decke, Wand/Möbel = dort, strahlt von der Fläche weg · Shift = weitere · Esc = fertig',
-  Uplight: 'Uplight setzen: Boden oder Möbel anklicken (Alt = an die Decke) · Shift = weitere · Esc = fertig',
-  Area: 'Leuchtfläche setzen: Boden anklicken = an die Decke · Shift = weitere · Esc = fertig',
+  Uplight: 'Uplight setzen: Boden oder Möbel anklicken, strahlt immer nach oben · Shift = weitere · Esc = fertig',
+  Area: 'Leuchtfläche setzen: kommt immer an die Decke über der angeklickten Stelle · Shift = weitere · Esc = fertig',
   Strip: 'LED-Streifen: auf Decke, Wand oder Möbel von Anfang bis Ende ziehen (Alt = Decke) · Esc = fertig',
   Glow: 'Objekt anklicken, das leuchten soll · Esc = fertig',
 }
@@ -341,7 +341,8 @@ function LightScene({ room }: { room: DerivedRoom }) {
         const move = (ev: PointerEvent) => {
           if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return
           moved = true
-          const h = surfaceHit(ev, ctx(), ceilingFirst !== ev.altKey)
+          const hit = surfaceHit(ev, ctx(), ceilingFirst !== ev.altKey)
+          const h = hit && mountFor(l.kind.type, hit, ctx().ceilingMm, l.kind.type === 'Area' ? Math.max(l.kind.w_mm, l.kind.h_mm) : 0)
           const st = useProject.getState()
           if (!h || !st.engine || !inside(h.at[0], h.at[1])) return
           const ops = st.engine.cmd_place_light(l, h.at[0], h.at[1], h.at[2], h.normal[0], h.normal[1], h.normal[2], h.furniture ?? '') as Op[]
@@ -432,11 +433,13 @@ function PlaceTool({ ctx, inside }: { ctx: () => HitCtx; inside: (x: number, y: 
       }
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return // orbiting
       const key: TemplateKey = tool
-      const h = surfaceHit(e, ctx(), CEILING_TOOLS.includes(tool) !== e.altKey)
+      const hit = surfaceHit(e, ctx(), tool !== 'Uplight' && CEILING_TOOLS.includes(tool) !== e.altKey)
+      const t = LAMP_TEMPLATES[key]
+      const h = hit && mountFor(tool, hit, ctx().ceilingMm, t.kind.type === 'Area' ? Math.max(t.kind.w_mm, t.kind.h_mm) : 0)
       const st = useProject.getState()
       if (!h || !st.engine || !inside(h.at[0], h.at[1])) return
-      const t = LAMP_TEMPLATES[key]
-      const ops = st.engine.cmd_place_light({ ...t, id: newId(), pos_mm: [0, 0, 0], attached_to: null }, h.at[0], h.at[1], h.at[2], h.normal[0], h.normal[1], h.normal[2], h.furniture ?? '') as Op[]
+      const placed = (st.engine.cmd_place_light({ ...t, id: newId(), pos_mm: [0, 0, 0], attached_to: null }, h.at[0], h.at[1], h.at[2], h.normal[0], h.normal[1], h.normal[2], h.furniture ?? '') as { light: Light }[])[0].light
+      const ops: Op[] = [{ op: 'PutLight', light: { ...placed, kind: keepUplight(tool, placed.kind) } }]
       if (st.commit(ops, `${t.name} setzen`)) {
         placedAt = performance.now()
         useEditor.getState().select({ kind: 'light', id: (ops[0] as { light: Light }).light.id })

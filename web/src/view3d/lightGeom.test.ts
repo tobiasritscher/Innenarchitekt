@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aimAt, facingNormal, glowLuminance, lightDir, stripFromDrag, surfaceIntensity, surfaceRect } from './lightGeom'
+import { aimAt, facingNormal, glowLuminance, keepUplight, lightDir, mountFor, stripFromDrag, surfaceIntensity, surfaceRect } from './lightGeom'
 import type { Light } from '../core/generated/Light'
 import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
 
@@ -89,5 +89,28 @@ describe('glowLuminance', () => {
   it('whole object: lumen over its whole surface', () => {
     // 1 m cube: 6 m²
     expect(glowLuminance('All', [1000, 1000, 1000], 600)).toBeCloseTo(600 / (Math.PI * 6))
+  })
+})
+
+describe('mountFor', () => {
+  const wall = { at: [0, 1000, 1500] as [number, number, number], normal: [1, 0, 0] as [number, number, number], furniture: null }
+  const top = { at: [500, 500, 800] as [number, number, number], normal: [0, 0, 1] as [number, number, number], furniture: 'f' }
+  it('area panels always go to the ceiling above the hit, clear of the wall', () => {
+    // 600 mm panel: centre 300 mm + 30 mm gap in front of the wall
+    expect(mountFor('Area', wall, 2500, 600)).toEqual({ at: [330, 1000, 2500], normal: [0, 0, -1], furniture: null })
+    expect(mountFor('Area', top, 2500, 600)).toEqual({ at: [500, 500, 2500], normal: [0, 0, -1], furniture: null })
+  })
+  it('other lamps stay where they were clicked', () => {
+    expect(mountFor('Spot', wall, 2500)).toBe(wall)
+  })
+})
+
+describe('keepUplight', () => {
+  it('an uplight points up wherever it is mounted (heading kept)', () => {
+    expect(keepUplight('Uplight', { type: 'Spot', angle_deg: 60, tilt_deg: 90, heading_deg: 45 })).toEqual({ type: 'Spot', angle_deg: 60, tilt_deg: 180, heading_deg: 45 })
+  })
+  it('a spot keeps its surface aim', () => {
+    const k = { type: 'Spot' as const, angle_deg: 40, tilt_deg: 90, heading_deg: 0 }
+    expect(keepUplight('Spot', k)).toBe(k)
   })
 })
