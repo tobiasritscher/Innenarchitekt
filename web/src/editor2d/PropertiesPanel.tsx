@@ -443,10 +443,18 @@ function Footprint({ src, it }: { src: PlanSource; it: FurnitureInstance }) {
 function LightProps({ src, l, onDelete }: { src: PlanSource; l: Light; onDelete: () => void }) {
   const put = (n: Light, label: string) => src.commit([{ op: 'PutLight', light: n }], label)
   const setKind = (t: LightKind['type']) => {
-    const kind: LightKind = t === 'Point' ? { type: 'Point' } : t === 'Spot' ? { type: 'Spot', angle_deg: 40, tilt_deg: 0, heading_deg: 0 } : { type: 'Area', w_mm: 600, h_mm: 600 }
+    const kind: LightKind =
+      t === 'Point'
+        ? { type: 'Point' }
+        : t === 'Spot'
+          ? { type: 'Spot', angle_deg: 40, tilt_deg: 0, heading_deg: 0 }
+          : t === 'Area'
+            ? { type: 'Area', w_mm: 600, h_mm: 600 }
+            : { type: 'Surface', face: 'All' }
     put({ ...l, kind }, 'Lichtart ändern')
   }
   const owner = l.attached_to ? src.project.furniture.find((f) => f.id === l.attached_to) : undefined
+  const kinds: [LightKind['type'], string][] = [['Point', 'Punkt'], ['Spot', 'Spot'], ['Area', 'Fläche'], ...(owner ? [['Surface', 'Objekt'] as [LightKind['type'], string]] : [])]
   return (
     <Section title="Lampe" onDelete={onDelete} deleteLabel="Lampe löschen">
       <TextField key={l.id} label="Name" value={l.name} onCommit={(name) => put({ ...l, name }, 'Lampe umbenennen')} />
@@ -454,9 +462,14 @@ function LightProps({ src, l, onDelete }: { src: PlanSource; l: Light; onDelete:
         <input type="checkbox" checked={l.on} onChange={(e) => put({ ...l, on: e.target.checked }, e.target.checked ? 'Lampe ein' : 'Lampe aus')} />
         Eingeschaltet
       </label>
-      <Seg value={l.kind.type} options={[['Point', 'Punkt'], ['Spot', 'Spot'], ['Area', 'Fläche']]} onChange={setKind} />
-      {l.kind.type === 'Spot' && (
-        <NumberField label="Öffnungswinkel" suffix="°" min={5} max={170} value={l.kind.angle_deg} onCommit={(v) => l.kind.type === 'Spot' && put({ ...l, kind: { ...l.kind, angle_deg: v } }, 'Spotwinkel')} />
+      <Seg value={l.kind.type} options={kinds} onChange={setKind} />
+      {l.kind.type === 'Spot' && <SpotAim l={l} put={put} />}
+      {l.kind.type === 'Surface' && (
+        <Seg
+          value={l.kind.face}
+          options={[['All', 'Ganzes Objekt'], ['Down', 'Unten'], ['Up', 'Oben'], ['Front', 'Vorne']]}
+          onChange={(face) => put({ ...l, kind: { type: 'Surface', face } }, 'Leuchtseite')}
+        />
       )}
       {l.kind.type === 'Area' && (
         <div className="row">
@@ -475,7 +488,7 @@ function LightProps({ src, l, onDelete }: { src: PlanSource; l: Light; onDelete:
           </button>
         ))}
       </div>
-      <NumberField label={owner ? 'Höhe über Möbel-Unterkante' : 'Höhe über Boden'} suffix="mm" min={0} value={l.pos_mm[2]} onCommit={(v) => put({ ...l, pos_mm: [l.pos_mm[0], l.pos_mm[1], Math.round(v)] }, 'Lampenhöhe')} />
+      {l.kind.type !== 'Surface' && <NumberField label={owner ? 'Höhe über Möbel-Unterkante' : 'Höhe über Boden'} suffix="mm" min={0} value={l.pos_mm[2]} onCommit={(v) => put({ ...l, pos_mm: [l.pos_mm[0], l.pos_mm[1], Math.round(v)] }, 'Lampenhöhe')} />}
       {owner && (
         <p className="muted small">
           Gehört zu{' '}
@@ -487,5 +500,32 @@ function LightProps({ src, l, onDelete }: { src: PlanSource; l: Light; onDelete:
       )}
       {!owner && <p className="muted small">Position: {fmtLength(l.pos_mm[0])} / {fmtLength(l.pos_mm[1])}</p>}
     </Section>
+  )
+}
+
+/** Beam angle, tilt (0 down … 180 up) and plan direction of a spot. */
+function SpotAim({ l, put }: { l: Light; put: (n: Light, label: string) => void }) {
+  if (l.kind.type !== 'Spot') return null
+  const k = l.kind
+  const spot = (patch: Partial<Omit<typeof k, 'type'>>, label: string) => put({ ...l, kind: { ...k, ...patch } }, label)
+  return (
+    <>
+      <div className="row">
+        <NumberField label="Öffnungswinkel" suffix="°" min={5} max={170} value={k.angle_deg} onCommit={(v) => spot({ angle_deg: v }, 'Spotwinkel')} />
+        <NumberField label="Neigung" suffix="°" min={0} max={180} value={Math.round(k.tilt_deg)} onCommit={(v) => spot({ tilt_deg: Math.max(0, Math.min(180, v)) }, 'Spot neigen')} />
+        <NumberField label="Richtung" suffix="°" value={Math.round(k.heading_deg)} onCommit={(v) => spot({ heading_deg: ((v % 360) + 360) % 360 }, 'Spot drehen')} />
+      </div>
+      <div className="seg">
+        <button aria-pressed={k.tilt_deg === 0} onClick={() => spot({ tilt_deg: 0 }, 'Spot nach unten')}>
+          ↓ unten
+        </button>
+        <button aria-pressed={k.tilt_deg === 90} onClick={() => spot({ tilt_deg: 90 }, 'Spot waagrecht')}>
+          → waagrecht
+        </button>
+        <button aria-pressed={k.tilt_deg === 180} onClick={() => spot({ tilt_deg: 180 }, 'Spot nach oben')}>
+          ↑ oben (indirekt)
+        </button>
+      </div>
+    </>
   )
 }
