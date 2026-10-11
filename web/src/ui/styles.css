@@ -628,6 +628,12 @@ label.check {
 .pl-light.on .mark {
   stroke: var(--plan-light);
 }
+/* glowing object (LED strip, lamp shade): soft dot, no lamp symbol */
+.pl-light circle.glow,
+.pl-light.on circle.glow {
+  fill: color-mix(in srgb, var(--accent) 40%, transparent);
+  stroke: none;
+}
 .pl-node {
   fill: var(--surface);
   stroke: var(--plan-dim);

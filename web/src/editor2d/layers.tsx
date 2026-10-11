@@ -253,8 +253,14 @@ export function LightSymbol({ l, at, scale, className = '', interactive = true }
   const k = r * 0.7
   return (
     <g className={`pl-light${l.on ? ' on' : ''} ${className}`} transform={`translate(${at[0]} ${at[1]})`} {...props}>
-      {l.kind.type === 'Area' ? <rect x={-r} y={-r * 0.7} width={2 * r} height={1.4 * r} /> : <circle r={r} />}
-      {l.kind.type === 'Spot' ? <circle r={r * 0.4} className="mark" /> : <path className="mark" d={`M${-k} ${-k}L${k} ${k}M${-k} ${k}L${k} ${-k}`} />}
+      {l.kind.type === 'Surface' ? (
+        <circle r={r} className="glow" />
+      ) : (
+        <>
+          {l.kind.type === 'Area' ? <rect x={-r} y={-r * 0.7} width={2 * r} height={1.4 * r} /> : <circle r={r} />}
+          {l.kind.type === 'Spot' ? <circle r={r * 0.4} className="mark" /> : <path className="mark" d={`M${-k} ${-k}L${k} ${k}M${-k} ${k}L${k} ${-k}`} />}
+        </>
+      )}
     </g>
   )
 }

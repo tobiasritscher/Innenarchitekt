@@ -1,12 +1,14 @@
 // Artificial light: lamp markers (preview) and physically based lamps with a shadow budget (view mode).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
-import { Color, MeshBasicMaterial, MeshStandardMaterial, Object3D, SphereGeometry, Vector3, type PointLight, type RectAreaLight, type SpotLight } from 'three'
+import { Color, DoubleSide, MeshBasicMaterial, MeshStandardMaterial, Object3D, SphereGeometry, Vector3, type PointLight, type RectAreaLight, type SpotLight } from 'three'
 import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
 import type { Light } from '../core/generated/Light'
 import { useEditor } from '../state/editor'
 import { useProject } from '../state/project'
 import { noRaycast, type PickHandlers } from './Building'
+import { furniturePosition, furnitureRotationY } from './Furniture'
+import { lightDir, surfaceIntensity, surfaceRect, type V3 } from './lightGeom'
 import { kelvinToColor, lumenToIntensity } from './photometry'
 import { live } from './store'
 
@@ -66,7 +68,7 @@ export function LightMarkers({ pick, only }: { pick?: LightHandlers; only?: (p: 
   const selection = useEditor((s) => s.selection)
   return (
     <group>
-      {(only ? placed.filter(only) : placed).map((p) => (
+      {(only ? placed.filter(only) : placed).filter((p) => p.light.kind.type !== 'Surface').map((p) => (
         <Marker key={p.light.id} p={p} pick={pick} selected={selection?.kind === 'light' && selection.id === p.light.id} />
       ))}
     </group>
@@ -103,7 +105,7 @@ export function LightRig({ budget, mapSize }: { budget: number; mapSize: number 
     acc.current = 0
     const cam = state.camera.position
     const ids = placed
-      .filter((p) => p.light.on && p.light.kind.type !== 'Area')
+      .filter((p) => p.light.on && (p.light.kind.type === 'Point' || p.light.kind.type === 'Spot'))
       .map((p) => ({ id: p.light.id, d: p.pos.distanceToSquared(cam) }))
       .sort((a, b) => a.d - b.d)
       .slice(0, budget)
@@ -113,9 +115,9 @@ export function LightRig({ budget, mapSize }: { budget: number; mapSize: number 
   })
   return (
     <group>
-      {placed.map((p) => (
-        <Lamp key={p.light.id} p={p} castShadow={shadowIds.includes(p.light.id)} mapSize={mapSize} />
-      ))}
+      {placed.map((p) =>
+        p.light.kind.type === 'Surface' ? <SurfaceLamp key={p.light.id} l={p.light} /> : <Lamp key={p.light.id} p={p} castShadow={shadowIds.includes(p.light.id)} mapSize={mapSize} />,
+      )}
     </group>
   )
 }
@@ -127,6 +129,8 @@ function Lamp({ p, castShadow, mapSize }: { p: PlacedLight; castShadow: boolean;
   const base = l.on ? lumenToIntensity(l.kind, l.lumen) : 0
   const color = useMemo(() => kelvinToColor(l.color_temp_k), [l.color_temp_k])
   const mat = useBulbMaterial(l)
+  const host = useProject((s) => (l.attached_to ? s.project?.furniture.find((f) => f.id === l.attached_to) : undefined))
+  const dir = lightDir(l, host) ?? [0, 0, -1]
   useFrame(() => {
     if (ref.current) ref.current.intensity = base * live.lightScale
   })
@@ -149,7 +153,8 @@ function Lamp({ p, castShadow, mapSize }: { p: PlacedLight; castShadow: boolean;
   if (l.kind.type === 'Spot') {
     lightEl = (
       <>
-        <primitive object={target} position={[0, -1, 0]} />
+        {/* plan (x, y, z up) → three (x, z, y) */}
+        <primitive object={target} position={[dir[0], dir[2], dir[1]]} />
         <spotLight ref={ref as React.Ref<SpotLight>} color={color} angle={(Math.min(170, l.kind.angle_deg) / 2) * (Math.PI / 180)} penumbra={0.35} decay={2} distance={0} target={target} castShadow={castShadow} />
       </>
     )
@@ -163,6 +168,46 @@ function Lamp({ p, castShadow, mapSize }: { p: PlacedLight; castShadow: boolean;
       {lightEl}
       {/* the light sits inside the bulb: the path tracer must let shadow rays pass */}
       <mesh geometry={bulbGeo} material={mat} raycast={noRaycast} userData={{ bulb: true }} />
+    </group>
+  )
+}
+
+/** Glowing object: emitting side (or whole object, see Furniture) + shadowless stand-in light, in the furniture's frame. */
+function SurfaceLamp({ l }: { l: Light }) {
+  const f = useProject((s) => s.project?.furniture.find((x) => x.id === l.attached_to))
+  const ref = useRef<PointLight | RectAreaLight>(null)
+  const color = useMemo(() => kelvinToColor(l.color_temp_k), [l.color_temp_k])
+  const glow = useMemo(() => new MeshStandardMaterial({ color: '#000000', side: DoubleSide }), [])
+  useEffect(() => () => glow.dispose(), [glow])
+  useLayoutEffect(() => {
+    glow.emissive.copy(color)
+    glow.emissiveIntensity = l.on ? 4 : 0
+  }, [glow, color, l.on])
+  const face = l.kind.type === 'Surface' ? l.kind.face : 'All'
+  const dims = (f?.dims_mm ?? [1, 1, 1]) as V3
+  const base = l.on && f ? surfaceIntensity(face, dims, l.lumen) : 0
+  useFrame(() => {
+    if (ref.current) ref.current.intensity = base * live.lightScale
+  })
+  if (!f) return null
+  const frame = { position: furniturePosition(f), rotation: [0, furnitureRotationY(f.rotation_deg), 0] as [number, number, number] }
+  if (face === 'All') {
+    return (
+      <group {...frame}>
+        <pointLight ref={ref as React.Ref<PointLight>} position={[0, dims[2] / 2000, 0]} color={color} decay={2} distance={0} castShadow={false} />
+      </group>
+    )
+  }
+  const r = surfaceRect(face, dims)
+  const off = 0.0015 // just outside the surface (no z-fighting)
+  return (
+    <group {...frame}>
+      <group position={r.center} rotation={[r.rotX, r.rotY, 0]}>
+        <rectAreaLight ref={ref as React.Ref<RectAreaLight>} color={color} width={r.size[0]} height={r.size[1]} position={[0, 0, -off]} />
+        <mesh material={glow} position={[0, 0, -off]} raycast={noRaycast} userData={{ bulb: true }}>
+          <planeGeometry args={r.size} />
+        </mesh>
+      </group>
     </group>
   )
 }

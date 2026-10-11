@@ -1,6 +1,6 @@
 // Furniture instances: primitive meshes from the core or normalised GLB models.
-import { Component, Suspense, useEffect, useMemo, type ReactNode } from 'react'
-import { Box3, EdgesGeometry, LineBasicMaterial, Vector3, type Object3D, type Material, type Mesh } from 'three'
+import { Component, Suspense, useEffect, useLayoutEffect, useMemo, type ReactNode } from 'react'
+import { Box3, EdgesGeometry, LineBasicMaterial, MeshStandardMaterial, Vector3, type Object3D, type Material, type Mesh } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import { useOverlaps } from '../core/derived'
@@ -13,6 +13,7 @@ import { useProject } from '../state/project'
 import { acquirePrimitive, releasePrimitive } from './geometry'
 import { furnitureMaterial, mats } from './materials3d'
 import { noRaycast, unitBox, type PickHandlers } from './Building'
+import { kelvinToColor } from './photometry'
 
 export const DRACO_PATH = '/draco/'
 
@@ -38,12 +39,14 @@ export function FurnitureLayer({ pick, highlight = false, only }: { pick?: Furni
   const hover = useEditor((s) => (highlight ? s.hover : null))
   const overlapSet = useMemo(() => new Set(highlight ? overlaps : []), [overlaps, highlight])
   const withLight = useMemo(() => new Set(lights.filter((l) => l.attached_to).map((l) => l.attached_to!)), [lights])
+  // furniture glowing as a whole (lamp shade)
+  const glowAll = useMemo(() => new Map(lights.filter((l) => l.kind.type === 'Surface' && l.kind.face === 'All' && l.attached_to).map((l) => [l.attached_to!, l])), [lights])
   return (
     <group>
       {furniture.map((f) => {
         if (only && !only(f)) return null
         const state = selection?.kind === 'furniture' && selection.id === f.id ? 'select' : overlapSet.has(f.id) ? 'overlap' : hover?.kind === 'furniture' && hover.id === f.id ? 'hover' : null
-        return <FurnitureItem key={f.id} item={f} pick={pick} outlineState={state} castShadow={!withLight.has(f.id)} />
+        return <FurnitureItem key={f.id} item={f} pick={pick} outlineState={state} castShadow={!withLight.has(f.id)} glow={glowAll.get(f.id)} />
       })}
     </group>
   )
@@ -57,8 +60,22 @@ export function furnitureRotationY(rotationDeg: number) {
   return (-rotationDeg * Math.PI) / 180
 }
 
-function FurnitureItem({ item, pick, outlineState, castShadow }: { item: FurnitureInstance; pick?: FurnitureHandlers; outlineState: 'select' | 'overlap' | 'hover' | null; castShadow: boolean }) {
+/** Emissive stand-in material for a furniture glowing as a whole; null without such a light. */
+function useGlowMaterial(l: Light | undefined): MeshStandardMaterial | null {
+  const has = !!l
+  const mat = useMemo(() => (has ? new MeshStandardMaterial({ color: '#f4efe6', roughness: 0.6 }) : null), [has])
+  useEffect(() => () => mat?.dispose(), [mat])
+  useLayoutEffect(() => {
+    if (!mat || !l) return
+    mat.emissive.copy(kelvinToColor(l.color_temp_k))
+    mat.emissiveIntensity = l.on ? 3 : 0
+  }, [mat, l])
+  return mat
+}
+
+function FurnitureItem({ item, pick, outlineState, castShadow, glow }: { item: FurnitureInstance; pick?: FurnitureHandlers; outlineState: 'select' | 'overlap' | 'hover' | null; castShadow: boolean; glow?: Light }) {
   const asset = useAssets((s) => s.assets.find((a) => a.id === item.asset))
+  const glowMat = useGlowMaterial(glow)
   const s = { kind: 'furniture' as const, id: item.id }
   const dims: [number, number, number] = [item.dims_mm[0], item.dims_mm[1], item.dims_mm[2]]
   const events = pick
@@ -70,16 +87,16 @@ function FurnitureItem({ item, pick, outlineState, castShadow }: { item: Furnitu
       }
     : {}
   const shape: PrimitiveShape = asset?.primitive ?? 'Box'
-  const fallback = <PrimitiveModel shape={shape} dims={dims} material={item.material} castShadow={castShadow} />
+  const fallback = <PrimitiveModel shape={shape} dims={dims} material={item.material} castShadow={castShadow} override={glowMat ?? undefined} emissive={!!glowMat} />
   const w = dims[0] / 1000
   const d = dims[1] / 1000
   const h = dims[2] / 1000
   return (
-    <group position={furniturePosition(item)} rotation={[0, furnitureRotationY(item.rotation_deg), 0]} {...events}>
+    <group position={furniturePosition(item)} rotation={[0, furnitureRotationY(item.rotation_deg), 0]} userData={{ furniture: item.id }} {...events}>
       {asset?.model_url ? (
         <ModelBoundary fallback={fallback} resetKey={asset.model_url}>
           <Suspense fallback={fallback}>
-            <GlbModel url={asset.model_url} dims={dims} castShadow={castShadow} />
+            <GlbModel url={asset.model_url} dims={dims} castShadow={castShadow} glow={glowMat} />
           </Suspense>
         </ModelBoundary>
       ) : (
@@ -90,16 +107,17 @@ function FurnitureItem({ item, pick, outlineState, castShadow }: { item: Furnitu
   )
 }
 
-export function PrimitiveModel({ shape, dims, material, castShadow = true, override }: { shape: PrimitiveShape; dims: [number, number, number]; material: string | null; castShadow?: boolean; override?: Material }) {
+export function PrimitiveModel({ shape, dims, material, castShadow = true, override, emissive = false }: { shape: PrimitiveShape; dims: [number, number, number]; material: string | null; castShadow?: boolean; override?: Material; emissive?: boolean }) {
   const key = `${shape}|${dims.join('x')}`
   const geo = useMemo(() => acquirePrimitive(shape, dims), [key]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => releasePrimitive(shape, dims), [key]) // eslint-disable-line react-hooks/exhaustive-deps
   const materials = override ?? (material ? [furnitureMaterial(material, 'main'), furnitureMaterial(material, 'accent')] : [mats.furnitureMain(), mats.furnitureAccent()])
-  return <mesh geometry={geo} material={materials} castShadow={castShadow} receiveShadow />
+  // a glowing object lets light (and the path tracer's shadow rays) through, like a bulb
+  return <mesh geometry={geo} material={materials} castShadow={emissive ? false : castShadow} receiveShadow userData={emissive ? { bulb: true } : {}} />
 }
 
 /** GLB scaled per axis to the instance dims; origin bottom centre. */
-function GlbModel({ url, dims, castShadow }: { url: string; dims: [number, number, number]; castShadow: boolean }) {
+function GlbModel({ url, dims, castShadow, glow }: { url: string; dims: [number, number, number]; castShadow: boolean; glow?: Material | null }) {
   const gltf = useGLTF(url, DRACO_PATH, true)
   const norm = useMemo(() => {
     const src = gltf.scene
@@ -114,11 +132,14 @@ function GlbModel({ url, dims, castShadow }: { url: string; dims: [number, numbe
     norm.obj.traverse((o: Object3D) => {
       const m = o as Mesh
       if (m.isMesh) {
-        m.castShadow = castShadow
+        if (!m.userData.orig) m.userData.orig = m.material
+        m.material = glow ?? m.userData.orig
+        m.userData.bulb = !!glow
+        m.castShadow = glow ? false : castShadow
         m.receiveShadow = true
       }
     })
-  }, [norm, castShadow])
+  }, [norm, castShadow, glow])
   const sx = dims[0] / 1000 / Math.max(1e-4, norm.size.x)
   const sy = dims[2] / 1000 / Math.max(1e-4, norm.size.y)
   const sz = dims[1] / 1000 / Math.max(1e-4, norm.size.z)
