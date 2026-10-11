@@ -26,6 +26,12 @@ export const icons = {
       <path d="M6 10l-3 2 3 2M18 10l3 2-3 2" />
     </I>
   ),
+  ruler: (
+    <I>
+      <path d="M3 16l13-13 5 5-13 13z" />
+      <path d="M7 12l2 2M10 9l2 2M13 6l2 2" />
+    </I>
+  ),
   opening: (
     <I>
       <path d="M3 20h4M17 20h4M7 20V9" />

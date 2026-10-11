@@ -1,7 +1,7 @@
 // UI state of the editor (not persisted in the project).
 import { create } from 'zustand'
 
-export type Mode = 'model' | 'view' | 'import'
+export type Mode = 'model' | 'room' | 'view' | 'import'
 
 export type Tool =
   | 'select'
@@ -10,6 +10,7 @@ export type Tool =
   | 'room'
   | 'material'
   | 'measure'
+  | 'ruler'
   | 'furniture'
   | 'light'
 
@@ -67,6 +68,8 @@ type EditorState = {
   fitRequest: number
   /** Properties panel: field to focus next (e.g. 'room-name'). */
   focusField: string | null
+  /** Room mode: focused room (RoomMeta id, else DerivedRoom key). */
+  room: string | null
 
   setMode: (m: Mode) => void
   setTool: (t: Tool) => void
@@ -82,6 +85,7 @@ type EditorState = {
   requestFocus: (ids: string[]) => void
   requestFit: () => void
   setFocusField: (f: string | null) => void
+  setRoom: (r: string | null) => void
 }
 
 const today = new Date()
@@ -121,6 +125,7 @@ export const useEditor = create<EditorState>((set) => ({
   focusRequest: null,
   fitRequest: 0,
   focusField: null,
+  room: null,
 
   setMode: (mode) => set({ mode, hover: null }),
   setTool: (tool) => set({ tool, placingAsset: null }),
@@ -136,4 +141,5 @@ export const useEditor = create<EditorState>((set) => ({
   requestFocus: (ids) => set((s) => ({ focusRequest: { ids, n: (s.focusRequest?.n ?? 0) + 1 } })),
   requestFit: () => set((s) => ({ fitRequest: s.fitRequest + 1 })),
   setFocusField: (focusField) => set({ focusField }),
+  setRoom: (room) => set({ room }),
 }))

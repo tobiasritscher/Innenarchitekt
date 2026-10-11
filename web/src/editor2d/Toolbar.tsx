@@ -10,6 +10,7 @@ const TOOLS: { tool: Tool; label: string; key: string }[] = [
   { tool: 'select', label: 'Auswahl', key: 'V' },
   { tool: 'wall', label: 'Wand zeichnen', key: 'W' },
   { tool: 'measure', label: 'Masskette', key: 'M' },
+  { tool: 'ruler', label: 'Messen', key: 'D' },
   { tool: 'opening', label: 'Öffnung', key: 'O' },
   { tool: 'room', label: 'Raum', key: 'R' },
   { tool: 'material', label: 'Material', key: 'P' },

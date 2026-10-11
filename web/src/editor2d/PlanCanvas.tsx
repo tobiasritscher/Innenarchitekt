@@ -94,6 +94,7 @@ const TOOL_HINT: Record<string, string> = {
   select: 'Klicken = auswählen · Ziehen = verschieben · Entf = löschen · R = drehen (Möbel) · F = Türanschlag',
   wall: 'Klicken = Punkt setzen · Zahl tippen + Enter = Länge · Doppelklick/Enter = fertig · Startpunkt = schliessen · Alt = ohne Fang',
   measure: 'Auf ein Mass klicken, neue Länge eingeben, fixe Seite wählen',
+  ruler: 'Klicken = Punkt A · Klicken = Punkt B · rastet an Ecken, Wandflächen, Möbeln · Shift = waagrecht/senkrecht · Alt = ohne Fang · Esc = löschen',
   opening: 'Auf eine Wand klicken, um die Öffnung zu setzen · F = Anschlag wechseln',
   room: 'In einen geschlossenen Raum klicken, um ihn zu benennen',
   material: 'Wandseite oder Boden anklicken · Shift = Decke',
@@ -138,6 +139,8 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
 
   // transient UI state
   const [cursor, setCursor] = useState<Vec | null>(null)
+  /** Ruler tool: A fixed, B fixed once the second click is done (else follows the cursor). */
+  const [ruler, setRuler] = useState<{ a: Vec; b: Vec | null } | null>(null)
   const [snap, setSnapState] = useState<Snapped | null>(null)
   const setSnap = (v: Snapped | null) => {
     snapRef.current = v
@@ -179,6 +182,24 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
       }),
     [floor.walls, nodes],
   )
+  /** Ruler targets: wall footprint corners/faces and furniture footprint corners/edges (besides axis nodes). */
+  const [rulerNodes, rulerFaces] = useMemo(() => {
+    const polys: Vec[][] = derived.footprints.map((f) => f.corners as Vec[])
+    for (const f of project.furniture) {
+      const r = (f.rotation_deg * Math.PI) / 180
+      const [w, d] = [f.dims_mm[0] / 2, f.dims_mm[1] / 2]
+      polys.push(([[-w, -d], [w, -d], [w, d], [-w, d]] as Vec[]).map(([x, y]) => [f.pos_mm[0] + x * Math.cos(r) - y * Math.sin(r), f.pos_mm[1] + x * Math.sin(r) + y * Math.cos(r)]))
+    }
+    const ns: SnapNode[] = [...snapNodes]
+    const fs: SnapWall[] = []
+    polys.forEach((poly, i) =>
+      poly.forEach((p, j) => {
+        ns.push({ id: `r${i}:${j}`, p })
+        fs.push({ id: `r${i}:${j}`, a: p, b: poly[(j + 1) % poly.length] })
+      }),
+    )
+    return [ns, fs]
+  }, [derived.footprints, project.furniture, snapNodes])
   const dimLabels = useMemo(() => wallDimLabels(floor, derived.rooms, view.scale), [floor, derived.rooms, view.scale])
 
   // ---------------------------------------------------------------- size / fit
@@ -249,6 +270,18 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
     // points of the chain being drawn are snap targets too (closing on the start point)
     const extra: SnapNode[] = pos.slice(0, -1).map((p, i) => ({ id: `draft:${i}`, p }))
     return snapPoint(raw, extra.length ? [...snapNodes, ...extra] : snapNodes, snapWalls, { enabled: snapOn(alt), tol: tolMm, prev })
+  }
+
+  /** Ruler snapping: wall corners (faces), nodes, furniture corners, wall faces; Shift = horizontal/vertical from A. */
+  const rulerSnap = (raw: Vec, alt: boolean, shift: boolean): Snapped => {
+    const a = ruler && !ruler.b ? ruler.a : undefined
+    if (a && shift) {
+      const d = sub(raw, a)
+      raw = Math.abs(d[0]) >= Math.abs(d[1]) ? [raw[0], a[1]] : [a[0], raw[1]]
+    }
+    const s = snapPoint(raw, rulerNodes, rulerFaces, { enabled: snapOn(alt), tol: tolMm, grid: 1, prev: shift ? undefined : a })
+    if (a && shift && s.kind !== 'node') return { p: Math.abs(raw[0] - a[0]) > Math.abs(raw[1] - a[1]) ? [s.p[0], a[1]] : [a[0], s.p[1]], kind: 'free' }
+    return s
   }
 
   const openingAt = (raw: Vec): Opening | null => {
@@ -441,6 +474,11 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
       case 'wall':
         addChainPoint(wallSnap(w, alt))
         break
+      case 'ruler': {
+        const p = rulerSnap(w, alt, shift).p
+        setRuler(!ruler || ruler.b ? { a: p, b: null } : { a: ruler.a, b: p })
+        break
+      }
       case 'measure':
         if (hit && (hit.k === 'dim' || hit.k === 'wall')) openMeasure(hit.id)
         else setMeasure(null)
@@ -712,6 +750,10 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
       const cur = useEditor.getState().hover
       if (hs?.id !== cur?.id || hs?.kind !== cur?.kind) setHover(hs)
     }
+    if (tool === 'ruler' && !pick) {
+      setCursor(w)
+      setSnap(rulerSnap(w, e.altKey, e.shiftKey))
+    }
     if (tool === 'wall' || tool === 'opening' || tool === 'furniture' || pick) {
       setCursor(w)
       if (tool === 'wall' && !pick) setSnap(wallSnap(w, e.altKey))
@@ -802,6 +844,7 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
         return
       }
       if (measure) return setMeasure(null)
+      if (ruler) return setRuler(null)
       if (typedRef.current) return setTyped('')
       if (draftRef.current.points.length) return setDraft({ points: [], pos: [] })
       if (ed.placingAsset) return ed.setPlacingAsset(null)
@@ -852,7 +895,7 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
       return
     }
     if (e.shiftKey || e.altKey) return
-    const map: Record<string, typeof tool> = { v: 'select', w: 'wall', m: 'measure', o: 'opening', r: 'room', p: 'material', l: 'light' }
+    const map: Record<string, typeof tool> = { v: 'select', w: 'wall', m: 'measure', d: 'ruler', o: 'opening', r: 'room', p: 'material', l: 'light' }
     if (map[k] && !pick) {
       if (draftRef.current.points.length) finishChain(false)
       ed.setTool(map[k])
@@ -880,6 +923,7 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
     else setDraft({ points: [], pos: [] })
     prevTool.current = tool
     setMeasure(null)
+    setRuler(null)
     setTyped('')
     setSnap(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1026,6 +1070,35 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
     )
   })()
 
+  const rulerMarks = (() => {
+    if (tool !== 'ruler' || pick) return null
+    const live = snap && cursor ? snap.p : cursor
+    const a = ruler?.a
+    const b = ruler ? (ruler.b ?? live) : null
+    const len = a && b ? dist(a, b) : 0
+    const dx = a && b ? Math.abs(b[0] - a[0]) : 0
+    const dy = a && b ? Math.abs(b[1] - a[1]) : 0
+    const mid = a && b ? mul(add(a, b), 0.5) : null
+    const tick = 6 / scale
+    const n = a && b && len > 1 ? mul(norm(sub(b, a)), tick) : null
+    return (
+      <g className="pl-ruler" pointerEvents="none">
+        {a && b && <line className="line" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} />}
+        {n &&
+          [a!, b!].map((p, i) => <line key={i} className="tick" x1={p[0] - n[1]} y1={p[1] + n[0]} x2={p[0] + n[1]} y2={p[1] - n[0]} />)}
+        {a && <circle className="pt" cx={a[0]} cy={a[1]} r={3.5 / scale} />}
+        {ruler?.b && <circle className="pt" cx={ruler.b[0]} cy={ruler.b[1]} r={3.5 / scale} />}
+        {!ruler?.b && live && <SnapMarker p={live} kind={snap?.kind ?? 'free'} scale={scale} />}
+        {mid && len > 1 && (
+          <text x={mid[0]} y={mid[1] - 10 / scale} fontSize={fs * 1.15} textAnchor="middle" className="len">
+            {fmtLength(Math.round(len))}
+            {dx > 5 && dy > 5 && <tspan className="parts" fontSize={fs * 0.85}>{`  ↔ ${fmtLength(Math.round(dx))} ↕ ${fmtLength(Math.round(dy))}`}</tspan>}
+          </text>
+        )}
+      </g>
+    )
+  })()
+
   const measureMarks = (() => {
     if (!measure) return null
     const w = floor.walls.find((x) => x.id === measure.wall)
@@ -1061,7 +1134,7 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
   const openingGhost = tool === 'opening' && cursor && !pick ? openingAt(cursor) : null
   const refImg = floor.reference_image
   const showNodes = (tool === 'select' || tool === 'wall') && !pick && scale > 0.02
-  const cursorClass = pick ? 'crosshair' : tool === 'select' ? (dragInfo ? 'grabbing' : 'default') : tool === 'measure' ? 'pointer' : 'crosshair'
+  const cursorClass = pick || tool === 'ruler' ? 'crosshair' : tool === 'select' ? (dragInfo ? 'grabbing' : 'default') : tool === 'measure' ? 'pointer' : 'crosshair'
   const typedMm = typed ? parseLength(typed) : null
   const typedScreen = typed && cursor ? toScreen(view, cursor) : null
 
@@ -1114,6 +1187,7 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
           {dragInfo?.kind === 'node' && snap?.node && <SnapMarker p={snap.p} kind="node" scale={scale} />}
           {wallPreview}
           {measureMarks}
+          {rulerMarks}
           {pick && cursor && <SnapMarker p={snap?.p ?? cursor} kind={snap?.kind ?? 'free'} scale={scale} />}
           {world?.(view)}
         </g>

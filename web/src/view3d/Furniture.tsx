@@ -30,7 +30,7 @@ export type FurnitureHandlers = PickHandlers & {
   onDown?: (e: ThreeEvent<PointerEvent>, item: FurnitureInstance) => void
 }
 
-export function FurnitureLayer({ pick, highlight = false }: { pick?: FurnitureHandlers; highlight?: boolean }) {
+export function FurnitureLayer({ pick, highlight = false, only }: { pick?: FurnitureHandlers; highlight?: boolean; only?: (f: FurnitureInstance) => boolean }) {
   const furniture = useProject((s) => s.project?.furniture ?? NO_FURNITURE)
   const lights = useProject((s) => s.project?.lights ?? NO_LIGHTS)
   const overlaps = useOverlaps()
@@ -41,6 +41,7 @@ export function FurnitureLayer({ pick, highlight = false }: { pick?: FurnitureHa
   return (
     <group>
       {furniture.map((f) => {
+        if (only && !only(f)) return null
         const state = selection?.kind === 'furniture' && selection.id === f.id ? 'select' : overlapSet.has(f.id) ? 'overlap' : hover?.kind === 'furniture' && hover.id === f.id ? 'hover' : null
         return <FurnitureItem key={f.id} item={f} pick={pick} outlineState={state} castShadow={!withLight.has(f.id)} />
       })}

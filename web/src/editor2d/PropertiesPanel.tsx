@@ -293,6 +293,18 @@ function RoomProps({ src, r, area, onDelete }: { src: PlanSource; r: RoomMeta; a
     <Section title="Raum" onDelete={onDelete} deleteLabel="Raumdaten löschen">
       <TextField key={r.id} label="Name" value={r.name} autoFocus={focus} onCommit={(name) => put({ ...r, name }, 'Raum umbenennen')} />
       <p>{area !== undefined ? `Fläche: ${fmtArea(area)}` : <span className="warning-text">Raum ist nicht geschlossen</span>}</p>
+      {area !== undefined && (
+        <button
+          onClick={() => {
+            useEditor.getState().setRoom(r.id)
+            useEditor.getState().select(null)
+            useEditor.getState().setMode('room')
+          }}
+          title="Raum in 3D möblieren und beleuchten"
+        >
+          In 3D einrichten
+        </button>
+      )}
       <MaterialPicker label="Boden" value={r.floor_material} onChange={(m) => put({ ...r, floor_material: m }, 'Bodenmaterial')} />
       <div className="field">
         Decke

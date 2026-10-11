@@ -1,6 +1,6 @@
 // Artificial light: lamp markers (preview) and physically based lamps with a shadow budget (view mode).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { Color, MeshBasicMaterial, MeshStandardMaterial, Object3D, SphereGeometry, Vector3, type PointLight, type RectAreaLight, type SpotLight } from 'three'
 import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
 import type { Light } from '../core/generated/Light'
@@ -56,20 +56,24 @@ function useBulbMaterial(l: Light) {
   return mat
 }
 
+export type LightHandlers = PickHandlers & {
+  onDown?: (e: ThreeEvent<PointerEvent>, p: PlacedLight) => void
+}
+
 /** Clickable lamp markers for the modelling preview. */
-export function LightMarkers({ pick }: { pick?: PickHandlers }) {
+export function LightMarkers({ pick, only }: { pick?: LightHandlers; only?: (p: PlacedLight) => boolean }) {
   const placed = usePlacedLights()
   const selection = useEditor((s) => s.selection)
   return (
     <group>
-      {placed.map((p) => (
+      {(only ? placed.filter(only) : placed).map((p) => (
         <Marker key={p.light.id} p={p} pick={pick} selected={selection?.kind === 'light' && selection.id === p.light.id} />
       ))}
     </group>
   )
 }
 
-function Marker({ p, pick, selected }: { p: PlacedLight; pick?: PickHandlers; selected: boolean }) {
+function Marker({ p, pick, selected }: { p: PlacedLight; pick?: LightHandlers; selected: boolean }) {
   const mat = useBulbMaterial(p.light)
   const s = { kind: 'light' as const, id: p.light.id }
   return (
@@ -81,6 +85,7 @@ function Marker({ p, pick, selected }: { p: PlacedLight; pick?: PickHandlers; se
         onClick={pick?.onClick ? (e) => pick.onClick!(e, s) : undefined}
         onPointerOver={pick?.onOver ? (e) => pick.onOver!(e, s) : undefined}
         onPointerOut={pick?.onOut ? (e) => pick.onOut!(e, s) : undefined}
+        onPointerDown={pick?.onDown ? (e) => pick.onDown!(e, p) : undefined}
       />
       {selected && <mesh geometry={bulbGeo} material={markerSel} scale={3.2} raycast={noRaycast} />}
     </group>

@@ -1,8 +1,10 @@
 // Walls, floors, ceilings and openings from the core's scene meshes (shared by preview and view mode).
-import { useEffect, useMemo, type ReactNode } from 'react'
-import { BoxGeometry, DoubleSide, MeshBasicMaterial, PlaneGeometry, type BufferGeometry, type Material } from 'three'
-import type { ThreeEvent } from '@react-three/fiber'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { BoxGeometry, DoubleSide, MeshBasicMaterial, PlaneGeometry, type BufferGeometry, type Group, type Material } from 'three'
+import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useSceneMeshes } from '../core/derived'
+import type { DerivedRoom } from '../core/generated/DerivedRoom'
+import { pointInPolygon } from '../editor2d/geom'
 import type { OpeningPlacement } from '../core/generated/OpeningPlacement'
 import type { Floor } from '../core/generated/Floor'
 import type { Wall } from '../core/generated/Wall'
@@ -46,7 +48,8 @@ function pickProps(h: PickHandlers | undefined, s: NonNullable<Selection>) {
   }
 }
 
-export function Building({ ceilings, pick, highlight = false, caps = false }: { ceilings: CeilingMode; pick?: PickHandlers; highlight?: boolean; caps?: boolean }) {
+/** `focus`: only this room's floor, walls and openings; walls between camera and room drop to a stub. */
+export function Building({ ceilings, pick, highlight = false, caps = false, focus }: { ceilings: CeilingMode; pick?: PickHandlers; highlight?: boolean; caps?: boolean; focus?: DerivedRoom | null }) {
   const scene = useSceneMeshes()
   const floor = useFloor()
   const selection = useEditor((s) => (highlight ? s.selection : null))
@@ -73,10 +76,16 @@ export function Building({ ceilings, pick, highlight = false, caps = false }: { 
   const roomById = useMemo(() => new Map<string, RoomMeta>((floor?.rooms ?? []).map((r) => [r.id, r])), [floor])
 
   if (!scene) return null
+  const focusWalls = focus ? new Set(focus.walls) : null
+  const walls = focusWalls ? scene.walls.filter((w) => focusWalls.has(w.wall)) : scene.walls
+  const rooms = focus ? scene.rooms.filter((r) => r.room.key === focus.key) : scene.rooms
+  const openingMesh = (o: OpeningPlacement) => (
+    <OpeningMesh key={o.opening} o={o} pick={pick} selected={isSel(selection, 'opening', o.opening)} hovered={isSel(hover, 'opening', o.opening)} />
+  )
 
   return (
     <group>
-      {scene.walls.map((w) => {
+      {walls.map((w) => {
         const geo = wallGeos.get(w.wall)
         const wall = wallById.get(w.wall)
         if (!geo || !wall) return null
@@ -86,17 +95,24 @@ export function Building({ ceilings, pick, highlight = false, caps = false }: { 
           : [surfaceMaterial(wall.finish_left, 'wall'), surfaceMaterial(wall.finish_right, 'wall'), mats.wallEdge(), mats.wallTop()]
         const s = { kind: 'wall' as const, id: w.wall }
         const ov = isSel(selection, 'wall', w.wall) ? overlay.select : isSel(hover, 'wall', w.wall) ? overlay.hover : null
-        return (
-          <group key={w.wall}>
+        const height = wall.height_mm != null ? Math.min(wall.height_mm / 1000, scene.ceiling_height) : scene.ceiling_height
+        const body = (
+          <>
             {/* Glass lets the sun through: no shadow casting, drawn after opaque geometry. */}
             <mesh geometry={geo} material={materials} castShadow={!glazed} receiveShadow={!glazed} renderOrder={glazed ? 1 : 0} userData={{ wall: w.wall }} {...pickProps(pick, s)} />
             {caps && !glazed && <mesh geometry={geo} material={mats.wallCap()} raycast={noRaycast} />}
-            {glazed && floor && <GlassFrame wall={wall} floor={floor} height={(wall.height_mm != null ? Math.min(wall.height_mm / 1000, scene.ceiling_height) : scene.ceiling_height)} pp={pickProps(pick, s)} />}
+            {glazed && floor && <GlassFrame wall={wall} floor={floor} height={height} pp={pickProps(pick, s)} />}
             {ov && <mesh geometry={geo} material={ov} renderOrder={2} raycast={noRaycast} />}
-          </group>
+          </>
+        )
+        if (!focus || !floor) return <group key={w.wall}>{body}</group>
+        return (
+          <CutawayWall key={w.wall} wall={wall} floor={floor} room={focus} height={height} openings={scene.openings.filter((o) => o.wall === w.wall).map(openingMesh)}>
+            {body}
+          </CutawayWall>
         )
       })}
-      {scene.rooms.map((r) => {
+      {rooms.map((r) => {
         const geo = floorGeos.get(r.room.key)
         if (!geo) return null
         const meta = r.room.meta ? roomById.get(r.room.meta) : undefined
@@ -111,16 +127,61 @@ export function Building({ ceilings, pick, highlight = false, caps = false }: { 
         )
       })}
       {ceilings !== 'none' &&
-        scene.rooms.map((r) => {
+        rooms.map((r) => {
           const geo = ceilGeos.get(r.room.key)
           if (!geo) return null
           const meta = r.room.meta ? roomById.get(r.room.meta) : undefined
           if (meta?.open_ceiling) return null
           return <Ceiling key={r.room.key} geo={geo} material={surfaceMaterial(meta?.ceiling_material ?? 'paint:white', 'ceiling')} visible={ceilings === 'visible'} />
         })}
-      {scene.openings.map((o) => (
-        <OpeningMesh key={o.opening} o={o} pick={pick} selected={isSel(selection, 'opening', o.opening)} hovered={isSel(hover, 'opening', o.opening)} />
-      ))}
+      {!focus && scene.openings.map(openingMesh)}
+    </group>
+  )
+}
+
+/** Height (m) a cut-away wall drops to. */
+const STUB_M = 0.18
+
+/** A wall of the focused room. While the camera looks at its outer side it shrinks (animated) to a stub,
+ *  so the room stays visible from every angle; its openings hide meanwhile. Floor is at y = 0, so the
+ *  group scales around the floor. */
+function CutawayWall({ wall, floor, room, height, openings, children }: { wall: Wall; floor: Floor; room: DerivedRoom; height: number; openings: ReactNode; children: ReactNode }) {
+  const ref = useRef<Group>(null)
+  const openRef = useRef<Group>(null)
+  const cur = useRef(1)
+  const side = useMemo(() => {
+    const a = floor.nodes.find((n) => n.id === wall.a)
+    const b = floor.nodes.find((n) => n.id === wall.b)
+    if (!a || !b) return null
+    const dx = b.x_mm - a.x_mm
+    const dy = b.y_mm - a.y_mm
+    const len = Math.hypot(dx, dy) || 1
+    const n: [number, number] = [dy / len, -dx / len]
+    const mid: [number, number] = [(a.x_mm + b.x_mm) / 2, (a.y_mm + b.y_mm) / 2]
+    const off = wall.thickness_mm / 2 + 100
+    const leftInside = pointInPolygon([mid[0] + n[0] * off, mid[1] + n[1] * off], room.inner as [number, number][])
+    // outward normal: away from the room
+    const out: [number, number] = leftInside ? [-n[0], -n[1]] : n
+    return { mid, out }
+  }, [wall, floor, room])
+  useFrame((state, dt) => {
+    const g = ref.current
+    if (!g || !side) return
+    const cam = state.camera.position
+    const outside = (cam.x * 1000 - side.mid[0]) * side.out[0] + (cam.z * 1000 - side.mid[1]) * side.out[1] > 0
+    const target = outside ? Math.min(1, STUB_M / Math.max(0.01, height)) : 1
+    let v = cur.current + (target - cur.current) * (1 - Math.exp(-Math.min(dt, 0.1) * 14))
+    if (Math.abs(v - target) < 0.002) v = target
+    else state.invalidate()
+    if (v === cur.current && g.scale.y === v) return
+    cur.current = v
+    g.scale.y = v
+    if (openRef.current) openRef.current.visible = v > 0.75
+  })
+  return (
+    <group ref={ref}>
+      {children}
+      <group ref={openRef}>{openings}</group>
     </group>
   )
 }

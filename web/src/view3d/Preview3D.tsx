@@ -1,7 +1,7 @@
 // Modelling-mode 3D preview: orbit camera, live rebuild per revision, click-to-select, hover,
 // drag furniture on the floor with wall snapping, place library assets in 3D.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
-import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { DirectionalLight, type PerspectiveCamera, MeshStandardMaterial, Object3D, PCFShadowMap, Plane, Raycaster, Vector2, Vector3 } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
@@ -13,24 +13,20 @@ import { useEditor, type Selection } from '../state/editor'
 import { floorId, useProject } from '../state/project'
 import { Building, type PickHandlers } from './Building'
 import { useBounds, type Bounds } from './bounds'
-import { RendererSetup, fitCamera } from './common'
+import { RendererSetup, cssVar, fitCamera } from './common'
 import { FurnitureLayer, PrimitiveModel, furnitureRotationY } from './Furniture'
-import { LightMarkers } from './Lights'
+import { LightMarkers, type PlacedLight } from './Lights'
 import { setWallCut, wallClip } from './materials3d'
 import type { DerivedRoom } from '../core/generated/DerivedRoom'
 import { pointInPolygon } from '../editor2d/geom'
+import { Ruler3D, RulerButton } from './Ruler3D'
 import { useView3D } from './store'
 
 const SNAP_MM = 150
 /** Time of the last 3D placement: the click that placed must not also select the floor below. */
 let justPlaced = 0
-const recentlyPlaced = () => performance.now() - justPlaced < 400
+export const recentlyPlaced = () => performance.now() - justPlaced < 400
 
-function cssVar(name: string, fallback: string) {
-  if (typeof document === 'undefined') return fallback
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  return v || fallback
-}
 
 export function Preview3D() {
   const cutWalls = useView3D((s) => s.cutWalls)
@@ -51,19 +47,20 @@ export function Preview3D() {
       >
         <color attach="background" args={[bg]} />
         <RendererSetup />
-        <PreviewContent cutWalls={cutWalls} />
+        <EditScene cutWalls={cutWalls} />
       </Canvas>
       <div className="v3d-overlay v3d-preview-tools">
         <button aria-pressed={cutWalls} onClick={() => setCutWalls(!cutWalls)} title="Wände auf 1.2 m Höhe abschneiden">
           Wände kappen
         </button>
+        <RulerButton />
       </div>
       {placing && <PlacingHint assetId={placing} />}
     </div>
   )
 }
 
-function PlacingHint({ assetId }: { assetId: string }) {
+export function PlacingHint({ assetId }: { assetId: string }) {
   const asset = useAssets((s) => s.assets.find((a) => a.id === assetId))
   return (
     <div className="v3d-overlay v3d-hint">
@@ -72,7 +69,9 @@ function PlacingHint({ assetId }: { assetId: string }) {
   )
 }
 
-function PreviewContent({ cutWalls }: { cutWalls: boolean }) {
+/** Editable 3D scene: select, drag furniture and lamps, place assets. With `room` the scene shows only
+ *  that room (walls facing the camera cut away), the camera orbits the room and edits stay inside it. */
+export function EditScene({ cutWalls = false, room = null }: { cutWalls?: boolean; room?: DerivedRoom | null }) {
   const bounds = useBounds()
   const camera = useThree((s) => s.camera)
   const gl = useThree((s) => s.gl)
@@ -87,10 +86,13 @@ function PreviewContent({ cutWalls }: { cutWalls: boolean }) {
   useLayoutEffect(() => invalidate(), [revision, selection, hover, assetsVersion, invalidate])
 
   useEffect(() => {
-    setWallCut(cutWalls ? 1.2 : null)
+    setWallCut(cutWalls && !room ? 1.2 : null)
     invalidate()
     return () => setWallCut(null)
-  }, [cutWalls, invalidate])
+  }, [cutWalls, room, invalidate])
+
+  /** Plan point (mm) allowed for edits: anywhere, or inside the focused room. */
+  const inside = useCallback((x: number, y: number) => !room || pointInPolygon([x, y], room.polygon as [number, number][]), [room])
 
   const raycaster = useMemo(() => new Raycaster(), [])
   const groundHit = useCallback(
@@ -141,12 +143,12 @@ function PreviewContent({ cutWalls }: { cutWalls: boolean }) {
     () => ({
       onClick: (e, s) => {
         e.stopPropagation()
-        if (e.delta > 5 || useEditor.getState().placingAsset || recentlyPlaced()) return
+        if (e.delta > 5 || useEditor.getState().placingAsset || recentlyPlaced() || useView3D.getState().ruler) return
         useEditor.getState().select(s)
       },
       onOver: (e, s) => {
         e.stopPropagation()
-        if (!useEditor.getState().placingAsset) useEditor.getState().setHover(s)
+        if (!useEditor.getState().placingAsset && !useView3D.getState().ruler) useEditor.getState().setHover(s)
       },
       onOut: (_e, s) => {
         const h = useEditor.getState().hover
@@ -158,7 +160,7 @@ function PreviewContent({ cutWalls }: { cutWalls: boolean }) {
 
   const onDown = useCallback(
     (e: ThreeEvent<PointerEvent>, item: FurnitureInstance) => {
-      if (e.button !== 0 || useEditor.getState().placingAsset) return
+      if (e.button !== 0 || useEditor.getState().placingAsset || useView3D.getState().ruler) return
       e.stopPropagation()
       const ne = e.nativeEvent
       const hit = groundHit(ne.clientX, ne.clientY, 0)
@@ -193,6 +195,7 @@ function PreviewContent({ cutWalls }: { cutWalls: boolean }) {
             console.warn(err)
           }
         }
+        if (!inside(x, y)) return
         st.setTransient([{ op: 'PutFurniture', item: { ...item, pos_mm: [Math.round(x), Math.round(y), movedElevation(st.engine, item, x, y)], rotation_deg: rot } }])
       }
       const up = () => {
@@ -206,22 +209,84 @@ function PreviewContent({ cutWalls }: { cutWalls: boolean }) {
       window.addEventListener('pointerup', up)
       window.addEventListener('pointercancel', up)
     },
-    [groundHit, floorPoint, controls],
+    [groundHit, floorPoint, controls, inside],
+  )
+
+  /** Drag a free lamp in the horizontal plane at its own height (attached lamps move with their furniture). */
+  const onLightDown = useCallback(
+    (e: ThreeEvent<PointerEvent>, p: PlacedLight) => {
+      if (e.button !== 0 || useEditor.getState().placingAsset || useView3D.getState().ruler) return
+      e.stopPropagation()
+      useEditor.getState().select({ kind: 'light', id: p.light.id })
+      if (p.light.attached_to) return
+      const ne = e.nativeEvent
+      const h0 = p.pos.y
+      const hit = groundHit(ne.clientX, ne.clientY, h0)
+      if (!hit) return
+      const grab = [p.light.pos_mm[0] - hit.x * 1000, p.light.pos_mm[1] - hit.z * 1000]
+      const sx = ne.clientX
+      const sy = ne.clientY
+      let moved = false
+      if (controls) controls.enabled = false
+      const move = (ev: PointerEvent) => {
+        if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return
+        moved = true
+        const h = groundHit(ev.clientX, ev.clientY, h0)
+        if (!h) return
+        const x = Math.round(h.x * 1000 + grab[0])
+        const y = Math.round(h.z * 1000 + grab[1])
+        if (!inside(x, y)) return
+        useProject.getState().setTransient([{ op: 'PutLight', light: { ...p.light, pos_mm: [x, y, p.light.pos_mm[2]] } }])
+      }
+      const up = () => {
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', up)
+        window.removeEventListener('pointercancel', up)
+        if (controls) controls.enabled = true
+        if (moved) useProject.getState().endTransient(true, 'Lampe verschieben')
+      }
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
+      window.addEventListener('pointercancel', up)
+    },
+    [groundHit, controls, inside],
   )
 
   const furniturePick = useMemo(() => ({ ...pick, onDown }), [pick, onDown])
+  const lightPick = useMemo(() => ({ ...pick, onDown: onLightDown }), [pick, onLightDown])
+  /** Room mode edits only furniture and lamps: clicking the building just clears the selection. */
+  const buildingPick: PickHandlers = useMemo(
+    () => ({
+      onClick: (e) => {
+        e.stopPropagation()
+        if (e.delta > 5 || useEditor.getState().placingAsset || recentlyPlaced() || useView3D.getState().ruler) return
+        useEditor.getState().select(null)
+      },
+    }),
+    [],
+  )
+  const furnitureIn = useCallback((f: FurnitureInstance) => inside(f.pos_mm[0], f.pos_mm[1]), [inside])
+  const lightIn = useCallback((p: PlacedLight) => inside(p.pos.x * 1000, p.pos.z * 1000), [inside])
+  const ground = room ? roomFrame(room) : { cx: bounds.center.x, cz: bounds.center.z, r: bounds.radius }
 
   return (
     <>
       <PreviewLights bounds={bounds} />
-      <Building ceilings="none" pick={pick} highlight caps={cutWalls} />
-      <FurnitureLayer pick={furniturePick} highlight />
-      <LightMarkers pick={pick} />
-      {placing && <Placement assetId={placing} floorPoint={floorPoint} />}
-      <OrbitControls makeDefault enableDamping={false} maxPolarAngle={Math.PI * 0.49} minDistance={1} maxDistance={80} />
-      <FitCamera bounds={bounds} />
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[bounds.center.x, -0.01, bounds.center.z]} receiveShadow raycast={() => {}}>
-        <planeGeometry args={[bounds.radius * 6, bounds.radius * 6]} />
+      <Building ceilings="none" pick={room ? buildingPick : pick} highlight={!room} caps={cutWalls && !room} focus={room} />
+      <FurnitureLayer pick={furniturePick} highlight only={room ? furnitureIn : undefined} />
+      <LightMarkers pick={lightPick} only={room ? lightIn : undefined} />
+      {placing && <Placement assetId={placing} floorPoint={floorPoint} inside={inside} />}
+      <Ruler3D />
+      {room ? (
+        <RoomCamera room={room} />
+      ) : (
+        <>
+          <OrbitControls makeDefault enableDamping={false} maxPolarAngle={Math.PI * 0.49} minDistance={1} maxDistance={80} />
+          <FitCamera bounds={bounds} />
+        </>
+      )}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[ground.cx, -0.01, ground.cz]} receiveShadow raycast={() => {}}>
+        <planeGeometry args={[ground.r * 6, ground.r * 6]} />
         <shadowMaterial opacity={0.12} />
       </mesh>
     </>
@@ -277,9 +342,63 @@ function FitCamera({ bounds }: { bounds: Bounds }) {
   return null
 }
 
+/** Centre (m, three frame) and horizontal half-diagonal (m) of a room's net polygon. */
+export function roomFrame(room: DerivedRoom): { cx: number; cz: number; r: number } {
+  const pts = room.inner.length ? room.inner : room.polygon
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const [x, y] of pts) {
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    maxX = Math.max(maxX, x)
+    maxY = Math.max(maxY, y)
+  }
+  return { cx: (minX + maxX) / 2000, cz: (minY + maxY) / 2000, r: Math.max(1, Math.hypot(maxX - minX, maxY - minY) / 2000) }
+}
+
+/** Orbit camera around the focused room: no panning, eases to the room on focus change or «Ansicht zurücksetzen». */
+function RoomCamera({ room }: { room: DerivedRoom }) {
+  const camera = useThree((s) => s.camera) as PerspectiveCamera
+  const controls = useThree((s) => s.controls) as OrbitControlsImpl | null
+  const invalidate = useThree((s) => s.invalidate)
+  const fitN = useView3D((s) => s.roomFit)
+  // refit on a new room only, not on every edit
+  const frame = useMemo(() => roomFrame(room), [room.key]) // eslint-disable-line react-hooks/exhaustive-deps
+  const anim = useRef<{ t: number; p0: Vector3; p1: Vector3; c0: Vector3; c1: Vector3 } | null>(null)
+
+  useEffect(() => {
+    if (!controls) return
+    const c1 = new Vector3(frame.cx, 0, frame.cz)
+    // keep the horizontal viewing direction, look down at ~50°
+    const az = Math.atan2(camera.position.x - controls.target.x, camera.position.z - controls.target.z)
+    const el = 0.88
+    const fov = (camera.fov * Math.PI) / 180
+    const d = (frame.r * 1.15) / Math.tan(fov / 2) / Math.min(1, camera.aspect)
+    const p1 = c1.clone().add(new Vector3(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)).multiplyScalar(d))
+    anim.current = { t: 0, p0: camera.position.clone(), p1, c0: controls.target.clone(), c1 }
+    invalidate()
+  }, [frame, controls, camera, fitN, invalidate])
+
+  useFrame((state, dt) => {
+    const a = anim.current
+    if (!a || !controls) return
+    a.t = Math.min(1, a.t + Math.min(dt, 0.1) / 0.45)
+    const k = 1 - Math.pow(1 - a.t, 3)
+    camera.position.lerpVectors(a.p0, a.p1, k)
+    controls.target.lerpVectors(a.c0, a.c1, k)
+    controls.update()
+    if (a.t >= 1) anim.current = null
+    else state.invalidate()
+  })
+
+  return <OrbitControls makeDefault enableDamping dampingFactor={0.12} enablePan={false} minDistance={1.2} maxDistance={Math.max(8, frame.r * 6)} maxPolarAngle={Math.PI * 0.47} />
+}
+
 const ghostMat = new MeshStandardMaterial({ color: '#1f6feb', transparent: true, opacity: 0.45, depthWrite: false })
 
-function Placement({ assetId, floorPoint }: { assetId: string; floorPoint: (x: number, y: number, depthMm: number) => [number, number] | null }) {
+function Placement({ assetId, floorPoint, inside }: { assetId: string; floorPoint: (x: number, y: number, depthMm: number) => [number, number] | null; inside: (x: number, y: number) => boolean }) {
   const asset = useAssets((s) => s.assets.find((a) => a.id === assetId))
   const gl = useThree((s) => s.gl)
   const invalidate = useThree((s) => s.invalidate)
@@ -310,6 +429,7 @@ function Placement({ assetId, floorPoint }: { assetId: string; floorPoint: (x: n
           console.warn(err)
         }
       }
+      if (!inside(x, y)) return
       useView3D.getState().setGhost({ x: Math.round(x), y: Math.round(y), rot })
       invalidate()
     }
@@ -359,7 +479,7 @@ function Placement({ assetId, floorPoint }: { assetId: string; floorPoint: (x: n
       window.removeEventListener('keydown', onKey)
       useView3D.getState().setGhost(null)
     }
-  }, [asset, gl, floorPoint, invalidate])
+  }, [asset, gl, floorPoint, inside, invalidate])
 
   useLayoutEffect(() => invalidate(), [ghost, invalidate])
   if (!asset || !ghost) return null

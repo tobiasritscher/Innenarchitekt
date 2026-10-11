@@ -1823,6 +1823,27 @@ circle.ref-line {
   padding: 3px 8px;
   font-size: 12px;
 }
+/* room mode «Einrichten» */
+.v3d-room {
+  background: var(--plan-bg);
+}
+.v3d-room-panel {
+  width: 320px;
+}
+.v3d-room-select {
+  flex: 1;
+  min-width: 0;
+}
+.v3d-room-tabs {
+  margin: 6px 6px 0;
+}
+.v3d-roompicker {
+  cursor: pointer;
+}
+.v3d-mm-room.active {
+  fill: var(--accent);
+  fill-opacity: 0.35;
+}
 @media (max-width: 640px) {
   .v3d-panel {
     width: auto;
@@ -1974,4 +1995,45 @@ circle.ref-line {
 }
 .ai-steps li:last-child {
   color: var(--text);
+}
+
+/* 2D ruler («Messen») */
+.pl-ruler .line,
+.pl-ruler .tick {
+  stroke: var(--accent);
+  stroke-width: 2px;
+}
+.pl-ruler .pt {
+  fill: var(--accent);
+}
+.pl-ruler .len {
+  fill: var(--accent);
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: var(--plan-bg);
+  stroke-width: 4px;
+}
+.pl-ruler .parts {
+  font-weight: 500;
+  fill: var(--muted);
+}
+
+/* 3D ruler label */
+.v3d-ruler-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1.5px solid var(--accent);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.v3d-ruler-label span {
+  font-size: 11px;
+  color: var(--muted);
 }

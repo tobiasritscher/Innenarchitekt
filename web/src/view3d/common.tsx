@@ -45,3 +45,10 @@ export function fitCamera(camera: PerspectiveCamera, controls: OrbitControlsImpl
   controls.target.copy(c)
 }
 
+
+/** Value of a CSS custom property on :root (theme colours for the canvas). */
+export function cssVar(name: string, fallback: string) {
+  if (typeof document === 'undefined') return fallback
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return v || fallback
+}

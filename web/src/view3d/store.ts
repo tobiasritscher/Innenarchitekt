@@ -10,18 +10,28 @@ type View3DState = {
   walker: Walker | null
   /** Ground hit while placing an asset in 3D (plan mm), for the ghost. */
   ghost: { x: number; y: number; rot: number } | null
+  /** Room mode: bump to ease the camera back to the room. */
+  roomFit: number
+  /** 3D ruler active. */
+  ruler: boolean
   setCutWalls: (v: boolean) => void
   setWalker: (w: Walker | null) => void
   setGhost: (g: { x: number; y: number; rot: number } | null) => void
+  requestRoomFit: () => void
+  setRuler: (v: boolean) => void
 }
 
 export const useView3D = create<View3DState>((set) => ({
   cutWalls: false,
   walker: null,
   ghost: null,
+  roomFit: 0,
+  ruler: false,
   setCutWalls: (cutWalls) => set({ cutWalls }),
   setWalker: (walker) => set({ walker }),
   setGhost: (ghost) => set({ ghost }),
+  requestRoomFit: () => set((s) => ({ roomFit: s.roomFit + 1 })),
+  setRuler: (ruler) => set({ ruler }),
 }))
 
 /** Live walker pose, mutated every frame by the walk controls (plan mm, yaw rad, pitch rad). */

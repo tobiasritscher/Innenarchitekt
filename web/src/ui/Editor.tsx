@@ -9,6 +9,7 @@ import { useEditor } from '../state/editor'
 import { useProject } from '../state/project'
 import { FurniturePanel } from '../view3d/FurniturePanel'
 import { Preview3D } from '../view3d/Preview3D'
+import { RoomMode } from '../view3d/RoomMode'
 import { ViewMode } from '../view3d/ViewMode'
 import { AiPanel } from './AiPanel'
 import { ProjectSettings } from './ProjectSettings'
@@ -92,6 +93,9 @@ export function Editor({ projectId, onExit }: { projectId: string; onExit: () =>
           <button role="tab" aria-selected={mode === 'model'} onClick={() => setMode('model')}>
             Modellieren
           </button>
+          <button role="tab" aria-selected={mode === 'room'} onClick={() => setMode('room')}>
+            Einrichten
+          </button>
           <button role="tab" aria-selected={mode === 'view'} onClick={() => setMode('view')}>
             Begehen
           </button>
@@ -114,6 +118,7 @@ export function Editor({ projectId, onExit }: { projectId: string; onExit: () =>
       </header>
 
       {mode === 'import' && <ImportWizard onClose={() => setMode('model')} />}
+      {mode === 'room' && <RoomMode />}
       {mode === 'view' && <ViewMode />}
       {mode === 'model' && (
         <div className="workspace">
