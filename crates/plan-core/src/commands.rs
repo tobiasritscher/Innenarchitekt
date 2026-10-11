@@ -469,6 +469,16 @@ pub fn diff(old: &Project, new: &Project) -> Vec<Op> {
             puts.push(Op::PutLight { light: l.clone() });
         }
     }
+    for sc in &old.light_scenes {
+        if !new.light_scenes.iter().any(|x| x.id == sc.id) {
+            ops.push(Op::DeleteLightScene { id: sc.id });
+        }
+    }
+    for sc in &new.light_scenes {
+        if old.light_scenes.iter().find(|x| x.id == sc.id) != Some(sc) {
+            puts.push(Op::PutLightScene { scene: sc.clone() });
+        }
+    }
     ops.extend(puts);
     ops
 }

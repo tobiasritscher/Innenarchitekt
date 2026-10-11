@@ -28,8 +28,28 @@ pub struct Project {
     pub floors: Vec<Floor>,
     pub furniture: Vec<FurnitureInstance>,
     pub lights: Vec<Light>,
+    /// Saved lamp states ("Abend", "Kochen"). Missing in older projects.
+    #[serde(default)]
+    pub light_scenes: Vec<LightScene>,
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub version: u64,
+}
+
+/// A named set of lamp states. States of lamps deleted later are kept but ignored when applied.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct LightScene {
+    pub id: Id,
+    pub name: String,
+    pub states: Vec<LightState>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct LightState {
+    pub light: Id,
+    pub on: bool,
+    pub lumen: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -215,6 +235,7 @@ impl Project {
             floors: vec![Floor::new(Uuid::new_v4(), "EG")],
             furniture: vec![],
             lights: vec![],
+            light_scenes: vec![],
             version: 0,
         }
     }
@@ -315,5 +336,11 @@ mod tests {
         }))
         .unwrap();
         assert!(!r.open_ceiling);
+        let p: Project = serde_json::from_value(serde_json::json!({
+            "id": id, "name": "x", "location": null, "north_angle_deg": 0.0,
+            "floors": [], "furniture": [], "lights": [], "version": 3
+        }))
+        .unwrap();
+        assert!(p.light_scenes.is_empty());
     }
 }

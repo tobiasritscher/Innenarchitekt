@@ -22,6 +22,8 @@ pub enum Op {
     DeleteFurniture { id: Id },
     PutLight { light: Light },
     DeleteLight { id: Id },
+    PutLightScene { scene: LightScene },
+    DeleteLightScene { id: Id },
     SetProject {
         name: String,
         location: Option<GeoLocation>,
@@ -176,6 +178,20 @@ pub fn apply(p: &mut Project, op: &Op) -> Result<Op, OpError> {
             let old = delete(&mut p.lights, id, |x| x.id).ok_or(OpError::NotFound(id))?;
             Op::PutLight { light: old }
         }
+        Op::PutLightScene { scene } => {
+            if scene.name.trim().is_empty() {
+                return Err(OpError::Invalid("Lichtszene ohne Namen".into()));
+            }
+            let id = scene.id;
+            match put(&mut p.light_scenes, scene, |x| x.id) {
+                Some(old) => Op::PutLightScene { scene: old },
+                None => Op::DeleteLightScene { id },
+            }
+        }
+        Op::DeleteLightScene { id } => {
+            let old = delete(&mut p.light_scenes, id, |x| x.id).ok_or(OpError::NotFound(id))?;
+            Op::PutLightScene { scene: old }
+        }
         Op::SetProject {
             name,
             location,
@@ -247,6 +263,26 @@ mod tests {
         assert_eq!(p.floors[0].walls.len(), 1);
         apply_batch(&mut p, &inv).unwrap();
         assert_eq!(p, before);
+    }
+
+    #[test]
+    fn light_scene_roundtrip() {
+        let mut p = Project::new(Uuid::new_v4(), "t");
+        let before = p.clone();
+        let sc = LightScene { id: Uuid::new_v4(), name: "Abend".into(), states: vec![LightState { light: Uuid::new_v4(), on: true, lumen: 800 }] };
+        let inv = apply_batch(&mut p, &[Op::PutLightScene { scene: sc.clone() }]).unwrap();
+        assert_eq!(p.light_scenes, vec![sc.clone()]);
+        let renamed = LightScene { name: "Nacht".into(), ..sc.clone() };
+        let inv2 = apply_batch(&mut p, &[Op::PutLightScene { scene: renamed }]).unwrap();
+        apply_batch(&mut p, &inv2).unwrap();
+        assert_eq!(p.light_scenes[0].name, "Abend");
+        let inv3 = apply_batch(&mut p, &[Op::DeleteLightScene { id: sc.id }]).unwrap();
+        assert!(p.light_scenes.is_empty());
+        apply_batch(&mut p, &inv3).unwrap();
+        apply_batch(&mut p, &inv).unwrap();
+        assert_eq!(p, before);
+        let empty = LightScene { name: " ".into(), ..sc };
+        assert!(apply_batch(&mut p, &[Op::PutLightScene { scene: empty }]).is_err());
     }
 
     #[test]
