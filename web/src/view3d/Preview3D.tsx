@@ -1,12 +1,13 @@
 // Modelling-mode 3D preview: orbit camera, live rebuild per revision, click-to-select, hover,
 // drag furniture on the floor with wall snapping, place library assets in 3D.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
-import { DirectionalLight, type PerspectiveCamera, MeshStandardMaterial, Object3D, PCFShadowMap, Plane, Raycaster, Vector2, Vector3 } from 'three'
+import { SphereGeometry, DirectionalLight, type PerspectiveCamera, MeshStandardMaterial, Object3D, PCFShadowMap, Plane, Raycaster, Vector2, Vector3 } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { instantiateAsset, movedElevation, standHeight } from '../core/furniture'
 import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
+import type { Light } from '../core/generated/Light'
 import type { SnapResult } from '../core/generated/SnapResult'
 import { useAssets } from '../state/assets'
 import { useEditor, type Selection } from '../state/editor'
@@ -20,7 +21,8 @@ import { setWallCut, wallClip } from './materials3d'
 import type { DerivedRoom } from '../core/generated/DerivedRoom'
 import { pointInPolygon } from '../editor2d/geom'
 import { Ruler3D, RulerButton } from './Ruler3D'
-import { useView3D } from './store'
+import { toolActive, useView3D, type LampType } from './store'
+import { newCeilingLight } from '../editor2d/model'
 
 const SNAP_MM = 150
 /** Time of the last 3D placement: the click that placed must not also select the floor below. */
@@ -143,12 +145,12 @@ export function EditScene({ cutWalls = false, room = null }: { cutWalls?: boolea
     () => ({
       onClick: (e, s) => {
         e.stopPropagation()
-        if (e.delta > 5 || useEditor.getState().placingAsset || recentlyPlaced() || useView3D.getState().ruler) return
+        if (e.delta > 5 || useEditor.getState().placingAsset || recentlyPlaced() || toolActive()) return
         useEditor.getState().select(s)
       },
       onOver: (e, s) => {
         e.stopPropagation()
-        if (!useEditor.getState().placingAsset && !useView3D.getState().ruler) useEditor.getState().setHover(s)
+        if (!useEditor.getState().placingAsset && !toolActive()) useEditor.getState().setHover(s)
       },
       onOut: (_e, s) => {
         const h = useEditor.getState().hover
@@ -160,7 +162,7 @@ export function EditScene({ cutWalls = false, room = null }: { cutWalls?: boolea
 
   const onDown = useCallback(
     (e: ThreeEvent<PointerEvent>, item: FurnitureInstance) => {
-      if (e.button !== 0 || useEditor.getState().placingAsset || useView3D.getState().ruler) return
+      if (e.button !== 0 || useEditor.getState().placingAsset || toolActive()) return
       e.stopPropagation()
       const ne = e.nativeEvent
       const hit = groundHit(ne.clientX, ne.clientY, 0)
@@ -215,7 +217,7 @@ export function EditScene({ cutWalls = false, room = null }: { cutWalls?: boolea
   /** Drag a free lamp in the horizontal plane at its own height (attached lamps move with their furniture). */
   const onLightDown = useCallback(
     (e: ThreeEvent<PointerEvent>, p: PlacedLight) => {
-      if (e.button !== 0 || useEditor.getState().placingAsset || useView3D.getState().ruler) return
+      if (e.button !== 0 || useEditor.getState().placingAsset || toolActive()) return
       e.stopPropagation()
       useEditor.getState().select({ kind: 'light', id: p.light.id })
       if (p.light.attached_to) return
@@ -259,7 +261,7 @@ export function EditScene({ cutWalls = false, room = null }: { cutWalls?: boolea
     () => ({
       onClick: (e) => {
         e.stopPropagation()
-        if (e.delta > 5 || useEditor.getState().placingAsset || recentlyPlaced() || useView3D.getState().ruler) return
+        if (e.delta > 5 || useEditor.getState().placingAsset || recentlyPlaced() || toolActive()) return
         useEditor.getState().select(null)
       },
     }),
@@ -277,6 +279,7 @@ export function EditScene({ cutWalls = false, room = null }: { cutWalls?: boolea
       <LightMarkers pick={lightPick} only={room ? lightIn : undefined} />
       {placing && <Placement assetId={placing} floorPoint={floorPoint} inside={inside} />}
       <Ruler3D />
+      <LightPlacement inside={inside} />
       {room ? (
         <RoomCamera room={room} />
       ) : (
@@ -340,6 +343,90 @@ function FitCamera({ bounds }: { bounds: Bounds }) {
     invalidate()
   }, [bounds, controls, camera, projectId, invalidate])
   return null
+}
+
+const LAMPS: Record<LampType, { name: string; kind: Light['kind']; lumen: number }> = {
+  Point: { name: 'Deckenleuchte', kind: { type: 'Point' }, lumen: 800 },
+  Spot: { name: 'Spot', kind: { type: 'Spot', angle_deg: 40 }, lumen: 450 },
+  Area: { name: 'Leuchtfläche', kind: { type: 'Area', w_mm: 600, h_mm: 600 }, lumen: 3000 },
+}
+export const LAMP_LABEL: Record<LampType, string> = { Point: 'Deckenleuchte', Spot: 'Spot', Area: 'Leuchtfläche' }
+const lampGhost = new MeshStandardMaterial({ color: '#ffd27a', emissive: '#ffd27a', emissiveIntensity: 1.5, transparent: true, opacity: 0.8, depthTest: false })
+const lampGeo = new SphereGeometry(0.07, 16, 12)
+
+/** Click to place a ceiling lamp (room mode): the cursor is projected onto the ceiling plane. */
+function LightPlacement({ inside }: { inside: (x: number, y: number) => boolean }) {
+  const type = useView3D((s) => s.placingLight)
+  const gl = useThree((s) => s.gl)
+  const camera = useThree((s) => s.camera)
+  const invalidate = useThree((s) => s.invalidate)
+  const ceiling = useProject((s) => s.project?.floors[0].ceiling_height_mm ?? 2500)
+  const [ghost, setGhost] = useState<[number, number] | null>(null)
+  const raycaster = useMemo(() => new Raycaster(), [])
+
+  useEffect(() => {
+    if (!type) {
+      setGhost(null)
+      return
+    }
+    const el = gl.domElement
+    const h = Math.max(0, ceiling - 100)
+    const at = (cx: number, cy: number): [number, number] | null => {
+      const r = el.getBoundingClientRect()
+      raycaster.setFromCamera(new Vector2(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1), camera)
+      const p = raycaster.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -h / 1000), new Vector3())
+      if (!p) return null
+      const q: [number, number] = [Math.round(p.x * 1000), Math.round(p.z * 1000)]
+      return inside(q[0], q[1]) ? q : null
+    }
+    let down: { x: number; y: number } | null = null
+    const onMove = (e: PointerEvent) => {
+      setGhost(at(e.clientX, e.clientY))
+      invalidate()
+    }
+    const onDown = (e: PointerEvent) => {
+      if (e.button === 0) down = { x: e.clientX, y: e.clientY }
+    }
+    const onUp = (e: PointerEvent) => {
+      if (!down || e.button !== 0) return
+      const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5
+      down = null
+      const p = moved ? null : at(e.clientX, e.clientY)
+      const project = useProject.getState().project
+      if (!p || !project) return
+      const def = LAMPS[type]
+      const l = { ...newCeilingLight(project, p), name: def.name, kind: def.kind, lumen: def.lumen }
+      justPlaced = performance.now()
+      if (useProject.getState().commit([{ op: 'PutLight', light: l }], `${def.name} setzen`)) {
+        // Shift keeps placing (several spots in a row)
+        if (!e.shiftKey) useView3D.getState().setPlacingLight(null)
+        useEditor.getState().select({ kind: 'light', id: l.id })
+      }
+    }
+    const onLeave = () => setGhost(null)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') useView3D.getState().setPlacingLight(null)
+    }
+    const cursor = el.style.cursor
+    el.style.cursor = 'copy'
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerdown', onDown)
+    el.addEventListener('pointerup', onUp)
+    el.addEventListener('pointerleave', onLeave)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      el.style.cursor = cursor
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerdown', onDown)
+      el.removeEventListener('pointerup', onUp)
+      el.removeEventListener('pointerleave', onLeave)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [type, gl, camera, raycaster, ceiling, inside, invalidate])
+
+  useLayoutEffect(() => invalidate(), [ghost, invalidate])
+  if (!type || !ghost) return null
+  return <mesh geometry={lampGeo} material={lampGhost} position={[ghost[0] / 1000, Math.max(0, ceiling - 100) / 1000, ghost[1] / 1000]} renderOrder={10} raycast={() => {}} />
 }
 
 /** Centre (m, three frame) and horizontal half-diagonal (m) of a room's net polygon. */

@@ -7,16 +7,16 @@ import { useFootprints, useRooms } from '../core/derived'
 import { fmtArea } from '../core/format'
 import type { DerivedRoom } from '../core/generated/DerivedRoom'
 import { pointInPolygon } from '../editor2d/geom'
-import { deleteOps, newCeilingLight } from '../editor2d/model'
+import { deleteOps } from '../editor2d/model'
 import { PropertiesPanel } from '../editor2d/PropertiesPanel'
 import { usePlanSource } from '../editor2d/source'
 import { useEditor } from '../state/editor'
 import { useProject } from '../state/project'
 import { RendererSetup, cssVar } from './common'
 import { FurniturePanel } from './FurniturePanel'
-import { EditScene, PlacingHint, recentlyPlaced } from './Preview3D'
+import { EditScene, LAMP_LABEL, PlacingHint, recentlyPlaced } from './Preview3D'
 import { RulerButton } from './Ruler3D'
-import { useView3D } from './store'
+import { useView3D, type LampType } from './store'
 
 /** Focus id of a room: its RoomMeta id, else the derived key. */
 const roomId = (r: DerivedRoom) => r.meta ?? r.key
@@ -59,11 +59,19 @@ export function RoomMode() {
     useEditor.getState().setRoom(roomId(next))
   }
 
-  const addLamp = () => {
-    if (!project || !room) return
-    const l = newCeilingLight(project, room.label)
-    if (useProject.getState().commit([{ op: 'PutLight', light: l }], 'Lampe setzen')) useEditor.getState().select({ kind: 'light', id: l.id })
+  const placingLight = useView3D((s) => s.placingLight)
+  const toggleLamp = (t: LampType) => {
+    const on = placingLight !== t
+    if (on) useEditor.getState().setPlacingAsset(null)
+    useView3D.getState().setPlacingLight(on ? t : null)
   }
+  // an asset placement started from the library ends lamp placement
+  useEffect(() => {
+    if (!placing) return
+    useView3D.getState().setPlacingLight(null)
+    useView3D.getState().setRuler(false)
+  }, [placing])
+  useEffect(() => () => useView3D.getState().setPlacingLight(null), [])
 
   // keys: R/⇧R rotate the selected furniture, Del deletes, Esc clears the selection
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {})
@@ -117,9 +125,13 @@ export function RoomMode() {
       </Canvas>
 
       <div className="v3d-overlay v3d-preview-tools">
-        <button onClick={addLamp} title="Deckenleuchte in der Raummitte setzen, danach an die richtige Stelle ziehen">
-          + Deckenleuchte
-        </button>
+        <div className="v3d-seg v3d-lamp-tools" role="group" aria-label="Lampe platzieren">
+          {(Object.keys(LAMP_LABEL) as LampType[]).map((t) => (
+            <button key={t} aria-pressed={placingLight === t} onClick={() => toggleLamp(t)} title={`${LAMP_LABEL[t]} an die Decke setzen: anklicken, dann Stelle an der Decke klicken (Shift = mehrere)`}>
+              + {LAMP_LABEL[t]}
+            </button>
+          ))}
+        </div>
         <button onClick={() => useView3D.getState().requestRoomFit()} title="Kamera wieder auf den ganzen Raum">
           Ansicht zurücksetzen
         </button>
@@ -164,6 +176,8 @@ export function RoomMode() {
       <RoomPicker rooms={rooms} focus={room} />
       {placing ? (
         <PlacingHint assetId={placing} />
+      ) : placingLight ? (
+        <div className="v3d-overlay v3d-hint">{LAMP_LABEL[placingLight]} platzieren: Stelle an der Decke klicken · Shift = weitere · Esc = abbrechen</div>
       ) : (
         <div className="v3d-overlay v3d-hint">Ziehen dreht um den Raum · Scrollen zoomt · Möbel ziehen verschiebt · R dreht · Entf löscht · D misst</div>
       )}

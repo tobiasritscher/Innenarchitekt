@@ -1,6 +1,14 @@
 // 3D-specific UI state (not persisted in the project).
 import { create } from 'zustand'
 
+export type LampType = 'Point' | 'Spot' | 'Area'
+
+/** A 3D click tool is active: element clicks/drags must not select or move anything. */
+export const toolActive = () => {
+  const s = useView3D.getState()
+  return s.ruler || !!s.placingLight
+}
+
 export type Walker = { x: number; y: number; yaw: number }
 
 type View3DState = {
@@ -14,11 +22,14 @@ type View3DState = {
   roomFit: number
   /** 3D ruler active. */
   ruler: boolean
+  /** Room mode: lamp type being placed by clicking (ceiling mounted). */
+  placingLight: LampType | null
   setCutWalls: (v: boolean) => void
   setWalker: (w: Walker | null) => void
   setGhost: (g: { x: number; y: number; rot: number } | null) => void
   requestRoomFit: () => void
   setRuler: (v: boolean) => void
+  setPlacingLight: (t: LampType | null) => void
 }
 
 export const useView3D = create<View3DState>((set) => ({
@@ -27,11 +38,13 @@ export const useView3D = create<View3DState>((set) => ({
   ghost: null,
   roomFit: 0,
   ruler: false,
+  placingLight: null,
   setCutWalls: (cutWalls) => set({ cutWalls }),
   setWalker: (walker) => set({ walker }),
   setGhost: (ghost) => set({ ghost }),
   requestRoomFit: () => set((s) => ({ roomFit: s.roomFit + 1 })),
-  setRuler: (ruler) => set({ ruler }),
+  setRuler: (ruler) => set(ruler ? { ruler, placingLight: null } : { ruler }),
+  setPlacingLight: (placingLight) => set(placingLight ? { placingLight, ruler: false } : { placingLight }),
 }))
 
 /** Live walker pose, mutated every frame by the walk controls (plan mm, yaw rad, pitch rad). */

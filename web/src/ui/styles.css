@@ -1837,6 +1837,14 @@ circle.ref-line {
 .v3d-room-tabs {
   margin: 6px 6px 0;
 }
+.v3d-lamp-tools button {
+  box-shadow: none;
+  background: transparent;
+}
+.v3d-lamp-tools button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+}
 .v3d-roompicker {
   cursor: pointer;
 }
