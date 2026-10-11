@@ -2,6 +2,7 @@
 // Collision via the core (engine.walk_move, plan mm).
 import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
+import { standHeight } from '../core/furniture'
 import { Vector3, type PerspectiveCamera } from 'three'
 import { useRooms } from '../core/derived'
 import { useEditor } from '../state/editor'
@@ -25,6 +26,9 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
   const rooms = useRooms()
   const keys = useRef(new Set<string>())
   const acc = useRef(0)
+  /** Smoothed floor height under the walker (podium/steps), mm. */
+  const floorMm = useRef<number | null>(null)
+  const invalidate = useThree((s) => s.invalidate)
 
   // initial pose: saved walker, else the largest room's label point
   useEffect(() => {
@@ -152,7 +156,13 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
         w.y += dy
       }
     }
-    camera.position.set(w.x / 1000, eye / 1000, w.y / 1000)
+    // eye height follows podiums and steps, eased so a step feels like a step, not a jump
+    const target = standHeight(useProject.getState().engine, w.x, w.y)
+    if (floorMm.current === null) floorMm.current = target
+    floorMm.current += (target - floorMm.current) * Math.min(1, dt * 10)
+    if (Math.abs(target - floorMm.current) > 1) invalidate()
+    else floorMm.current = target
+    camera.position.set(w.x / 1000, (eye + floorMm.current) / 1000, w.y / 1000)
     const cp = Math.cos(w.pitch)
     tmp.current.set(camera.position.x + cp * Math.cos(w.yaw), camera.position.y + Math.sin(w.pitch), camera.position.z + cp * Math.sin(w.yaw))
     camera.lookAt(tmp.current)

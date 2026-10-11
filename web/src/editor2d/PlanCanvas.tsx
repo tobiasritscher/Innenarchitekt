@@ -10,7 +10,7 @@ import type { Op } from '../core/generated/Op'
 import type { Opening } from '../core/generated/Opening'
 import type { SnapResult } from '../core/generated/SnapResult'
 import { fmtLength, parseLength } from '../core/format'
-import { instantiateAsset } from '../core/furniture'
+import { instantiateAsset, movedElevation, standHeight } from '../core/furniture'
 import { newId } from '../core/engine'
 import { useAssets } from '../state/assets'
 import { useEditor, type Selection, type SelectionKind } from '../state/editor'
@@ -304,7 +304,9 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
       rotation_deg: s ? s.rotation_deg : placeRot,
       dims_mm: dims,
       material: null,
+      walkable: asset.primitive === 'Podest',
     }
+    item.pos_mm[2] = Math.round(standHeight(source.engine, item.pos_mm[0], item.pos_mm[1]))
     return item
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tool, asset, cursor, placeRot, altDown, source.revision, snapping])
@@ -500,7 +502,7 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
       }
       case 'furniture': {
         if (!asset || !placementGhost) break
-        const [ops, id] = instantiateAsset(asset, placementGhost.pos_mm[0], placementGhost.pos_mm[1], placementGhost.rotation_deg)
+        const [ops, id] = instantiateAsset(asset, placementGhost.pos_mm[0], placementGhost.pos_mm[1], placementGhost.rotation_deg, placementGhost.pos_mm[2])
         if (source.commit(ops, 'Möbel platzieren')) {
           select({ kind: 'furniture', id })
           if (!shift) useEditor.getState().setPlacingAsset(null)
@@ -598,9 +600,11 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
           const x = g.orig.pos_mm[0] + delta[0]
           const y = g.orig.pos_mm[1] + delta[1]
           const s = furnitureSnap(x, y, g.orig.dims_mm, g.rot, alt)
+          const nx = s ? s.x_mm : Math.round(snapOn(alt) ? Math.round(x / 10) * 10 : x)
+          const ny = s ? s.y_mm : Math.round(snapOn(alt) ? Math.round(y / 10) * 10 : y)
           const item: FurnitureInstance = {
             ...g.orig,
-            pos_mm: [s ? s.x_mm : Math.round(snapOn(alt) ? Math.round(x / 10) * 10 : x), s ? s.y_mm : Math.round(snapOn(alt) ? Math.round(y / 10) * 10 : y), g.orig.pos_mm[2]],
+            pos_mm: [nx, ny, movedElevation(source.engine, g.orig, nx, ny)],
             rotation_deg: s ? s.rotation_deg : g.rot,
           }
           ops = [{ op: 'PutFurniture', item }]

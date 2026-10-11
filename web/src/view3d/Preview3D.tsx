@@ -5,7 +5,7 @@ import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { DirectionalLight, type PerspectiveCamera, MeshStandardMaterial, Object3D, PCFShadowMap, Plane, Raycaster, Vector2, Vector3 } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { instantiateAsset } from '../core/furniture'
+import { instantiateAsset, movedElevation, standHeight } from '../core/furniture'
 import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
 import type { SnapResult } from '../core/generated/SnapResult'
 import { useAssets } from '../state/assets'
@@ -193,7 +193,7 @@ function PreviewContent({ cutWalls }: { cutWalls: boolean }) {
             console.warn(err)
           }
         }
-        st.setTransient([{ op: 'PutFurniture', item: { ...item, pos_mm: [Math.round(x), Math.round(y), item.pos_mm[2]], rotation_deg: rot } }])
+        st.setTransient([{ op: 'PutFurniture', item: { ...item, pos_mm: [Math.round(x), Math.round(y), movedElevation(st.engine, item, x, y)], rotation_deg: rot } }])
       }
       const up = () => {
         window.removeEventListener('pointermove', move)
@@ -326,7 +326,7 @@ function Placement({ assetId, floorPoint }: { assetId: string; floorPoint: (x: n
       update(e.clientX, e.clientY, e.altKey)
       const g = useView3D.getState().ghost
       if (!g) return
-      const [ops, id] = instantiateAsset(asset, g.x, g.y, g.rot)
+      const [ops, id] = instantiateAsset(asset, g.x, g.y, g.rot, standHeight(useProject.getState().engine, g.x, g.y))
       justPlaced = performance.now()
       if (useProject.getState().commit(ops, `${asset.name} platzieren`)) {
         useEditor.getState().setPlacingAsset(null)

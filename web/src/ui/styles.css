@@ -592,6 +592,11 @@ label.check {
 .pl-furn text {
   fill: var(--text);
 }
+.pl-furn .step {
+  stroke: var(--muted);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
 .pl-furn.overlap polygon {
   stroke: var(--danger);
   stroke-width: 2px;

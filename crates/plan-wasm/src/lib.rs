@@ -139,6 +139,10 @@ impl PlanEngine {
     pub fn overlaps(&self) -> Result<JsValue, JsError> {
         to_js(&furniture::overlaps(&self.project))
     }
+    /// Floor height (mm) at plan point: top of a podium there (ignoring furniture `except`, may be empty), else 0.
+    pub fn floor_height_at(&self, x: f64, y: f64, except: &str) -> f64 {
+        furniture::floor_height_at(&self.project, [x, y], Id::parse_str(except).ok())
+    }
     /// Move the walker (plan mm). Returns [x, y].
     pub fn walk_move(&mut self, x: f64, y: f64, dx: f64, dy: f64, radius: f64) -> Vec<f64> {
         if self.colliders.is_none() {
