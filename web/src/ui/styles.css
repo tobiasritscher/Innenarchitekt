@@ -1965,3 +1965,13 @@ circle.ref-line {
 .v3d-photo-job progress {
   width: 100%;
 }
+
+.ai-steps {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  white-space: normal;
+}
+.ai-steps li:last-child {
+  color: var(--text);
+}

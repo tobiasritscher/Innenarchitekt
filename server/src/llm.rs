@@ -125,6 +125,56 @@ impl LlmClient {
     }
 }
 
+impl LlmClient {
+    /// One turn of a tool-using conversation (OpenAI format). The model must call one of `tools`
+    /// (`tool_choice: required`). Returns the assistant message (with `tool_calls`).
+    pub async fn chat(&self, messages: &[Value], tools: &[Value]) -> anyhow::Result<Value> {
+        let body = json!({
+            "model": self.model,
+            "max_tokens": MAX_TOKENS,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "required",
+        });
+        let mut last_err = None;
+        for attempt in 0..3 {
+            if attempt > 0 {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+            match self.http.post(self.endpoint()).bearer_auth(&self.api_key).json(&body).send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_default();
+                    if status.is_success() {
+                        let v: Value = serde_json::from_str(&text).context("LLM-Antwort ist kein JSON")?;
+                        if let Some(m) = v.pointer("/choices/0/message") {
+                            return Ok(m.clone());
+                        }
+                        last_err = Some(anyhow!("LLM-Antwort ohne choices[0].message"));
+                        continue;
+                    }
+                    let err = anyhow!("LLM-Fehler {}: {}", status.as_u16(), truncate(&text, 400));
+                    if status.is_server_error() || status.as_u16() == 429 {
+                        last_err = Some(err);
+                        continue;
+                    }
+                    return Err(err);
+                }
+                Err(e) => {
+                    let retry = e.is_timeout() || e.is_connect() || e.is_request();
+                    let err = anyhow!("LLM nicht erreichbar: {}", e.without_url());
+                    if retry {
+                        last_err = Some(err);
+                        continue;
+                    }
+                    return Err(err);
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| anyhow!("LLM-Aufruf fehlgeschlagen")))
+    }
+}
+
 fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
         s.to_string()

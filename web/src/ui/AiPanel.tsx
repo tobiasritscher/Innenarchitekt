@@ -36,6 +36,7 @@ export function AiPanel() {
   const [text, setText] = useState('')
   const [photos, setPhotos] = useState<{ blob: Blob; url: string }[]>([])
   const [busy, setBusy] = useState(false)
+  const [steps, setSteps] = useState<string[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const msgsRef = useRef(msgs)
@@ -66,13 +67,14 @@ export function AiPanel() {
     const fd = new FormData()
     fd.append('text', q.trim())
     fd.append('project', JSON.stringify(useProject.getState().project))
-    fd.append('materials', JSON.stringify(MATERIALS.map((m) => [m.id, `${m.name} (${m.group})`])))
+    fd.append('materials', JSON.stringify(MATERIALS.map((m) => [m.id, `${m.name} (${m.group})`, m.color])))
     fd.append('history', JSON.stringify(history))
     photos.forEach((p, i) => fd.append('photo', p.blob, `foto${i + 1}.jpg`))
     photos.forEach((p) => URL.revokeObjectURL(p.url))
     setPhotos([])
     try {
-      const res = await api.ai(project.id, fd)
+      setSteps([])
+      const res = await api.ai(project.id, fd, (t) => setSteps((s) => [...s, t]))
       // proposals may use primitive shapes the server just added to the library
       if (res.ops.some((o) => o.op === 'PutFurniture')) await useAssets.getState().load().catch(() => {})
       let status: 'preview' | 'info' = 'info'
@@ -177,7 +179,18 @@ export function AiPanel() {
             </div>
           ),
         )}
-        {busy && <div className="ai-msg ai-busy muted">KI denkt nach … (ca. 10–40 s)</div>}
+        {busy && (
+          <div className="ai-msg ai-busy muted">
+            KI arbeitet … (einfache Fragen ~10 s, grössere Umbauten 1–3 Min.)
+            {steps.length > 0 && (
+              <ul className="ai-steps">
+                {steps.map((t, i) => (
+                  <li key={i}>{t}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <div ref={endRef} />
       </div>
       {photos.length > 0 && (

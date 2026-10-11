@@ -9,7 +9,6 @@ use std::collections::HashMap;
 
 use axum::extract::{Multipart, Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use plan_core::assets::Asset;
 use plan_core::primitives::PrimitiveShape;
 use plan_core::commands::{self, ChainPoint};
@@ -25,19 +24,18 @@ use uuid::Uuid;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 
-const TOOL: &str = "respond";
 const MAX_PHOTOS: usize = 6;
 
 // ------------------------------------------------------------------ short ids
 
 #[derive(Default)]
-struct Ids {
-    short: HashMap<Uuid, String>,
-    long: HashMap<String, Uuid>,
+pub(crate) struct Ids {
+    pub short: HashMap<Uuid, String>,
+    pub long: HashMap<String, Uuid>,
 }
 
 impl Ids {
-    fn add(&mut self, prefix: &str, id: Uuid) -> String {
+    pub fn add(&mut self, prefix: &str, id: Uuid) -> String {
         if let Some(s) = self.short.get(&id) {
             return s.clone();
         }
@@ -46,25 +44,28 @@ impl Ids {
         self.long.insert(s.clone(), id);
         s
     }
-    fn s(&self, id: Uuid) -> String {
+    pub fn s(&self, id: Uuid) -> String {
         self.short.get(&id).cloned().unwrap_or_else(|| id.to_string())
     }
-    fn get(&self, s: &str) -> Option<Uuid> {
+    pub fn get(&self, s: &str) -> Option<Uuid> {
         self.long.get(s.trim()).copied().or_else(|| Uuid::parse_str(s.trim()).ok())
     }
 }
 
 /// Everything the translator needs besides the project.
-struct Ctx {
-    ids: Ids,
-    rooms: Vec<DerivedRoom>,
-    room_ids: Vec<String>,
-    assets: Vec<Asset>,
-    materials: Vec<(String, String)>,
+pub(crate) struct Ctx {
+    pub ids: Ids,
+    pub rooms: Vec<DerivedRoom>,
+    pub room_ids: Vec<String>,
+    pub assets: Vec<Asset>,
+    pub materials: Vec<(String, String)>,
+    /// Material id → display colour "#rrggbb" (for elevation images).
+    pub colors: HashMap<String, String>,
+    room_seq: usize,
 }
 
 impl Ctx {
-    fn room(&self, s: &str) -> Option<&DerivedRoom> {
+    pub fn room(&self, s: &str) -> Option<&DerivedRoom> {
         let s = s.trim();
         if let Some(i) = self.room_ids.iter().position(|r| r == s) {
             return self.rooms.get(i);
@@ -79,7 +80,7 @@ fn p2(n: &Node) -> P {
 }
 
 /// Room (index) on the left (+1) or right (−1) side of a wall.
-fn side_room(f: &Floor, rooms: &[DerivedRoom], w: &Wall, side: f64) -> Option<usize> {
+pub(crate) fn side_room(f: &Floor, rooms: &[DerivedRoom], w: &Wall, side: f64) -> Option<usize> {
     let (a, b) = f.wall_points(w)?;
     if dist(a, b) < 1.0 {
         return None;
@@ -89,11 +90,11 @@ fn side_room(f: &Floor, rooms: &[DerivedRoom], w: &Wall, side: f64) -> Option<us
     rooms.iter().position(|r| point_in_polygon(probe, &r.polygon))
 }
 
-fn room_name(f: &Floor, r: &DerivedRoom) -> Option<String> {
+pub(crate) fn room_name(f: &Floor, r: &DerivedRoom) -> Option<String> {
     r.meta.and_then(|m| f.rooms.iter().find(|x| x.id == m)).map(|m| m.name.clone())
 }
 
-fn bbox(poly: &[P]) -> [i64; 4] {
+pub(crate) fn bbox(poly: &[P]) -> [i64; 4] {
     let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
     for p in poly {
         b = [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])];
@@ -101,13 +102,13 @@ fn bbox(poly: &[P]) -> [i64; 4] {
     b.map(|v| v.round() as i64)
 }
 
-fn r1(v: f64) -> f64 {
+pub(crate) fn r1(v: f64) -> f64 {
     (v * 10.0).round() / 10.0
 }
 
 // ------------------------------------------------------------------ state for the model
 
-fn build_ctx(p: &Project, assets: Vec<Asset>, materials: Vec<(String, String)>) -> Ctx {
+pub(crate) fn build_ctx(p: &Project, assets: Vec<Asset>, materials: Vec<(String, String)>) -> Ctx {
     let mut ids = Ids::default();
     let f = &p.floors[0];
     for n in &f.nodes {
@@ -130,10 +131,46 @@ fn build_ctx(p: &Project, assets: Vec<Asset>, materials: Vec<(String, String)>) 
     }
     let rooms = derive_rooms(f);
     let room_ids = (1..=rooms.len()).map(|i| format!("r{i}")).collect();
-    Ctx { ids, rooms, room_ids, assets, materials }
+    let room_seq = rooms.len();
+    Ctx { ids, rooms, room_ids, assets, materials, colors: HashMap::new(), room_seq }
 }
 
-fn state_json(p: &Project, cx: &Ctx) -> Value {
+impl Ctx {
+    /// After changes: short ids for new elements; rooms re-derived, keeping the short id of rooms whose key survived.
+    pub fn refresh(&mut self, p: &Project) {
+        let f = &p.floors[0];
+        for n in &f.nodes {
+            self.ids.add("n", n.id);
+        }
+        for w in &f.walls {
+            self.ids.add("w", w.id);
+        }
+        for o in &f.openings {
+            self.ids.add("o", o.id);
+        }
+        for it in &p.furniture {
+            self.ids.add("f", it.id);
+        }
+        for l in &p.lights {
+            self.ids.add("l", l.id);
+        }
+        let rooms = derive_rooms(f);
+        let mut ids = Vec::with_capacity(rooms.len());
+        for r in &rooms {
+            match self.rooms.iter().position(|o| o.key == r.key || (o.meta.is_some() && o.meta == r.meta)) {
+                Some(i) => ids.push(self.room_ids[i].clone()),
+                None => {
+                    self.room_seq += 1;
+                    ids.push(format!("r{}", self.room_seq));
+                }
+            }
+        }
+        self.rooms = rooms;
+        self.room_ids = ids;
+    }
+}
+
+pub(crate) fn state_json(p: &Project, cx: &Ctx) -> Value {
     let f = &p.floors[0];
     let ids = &cx.ids;
     let n = p.north_angle_deg as f64;
@@ -245,7 +282,7 @@ fn state_json(p: &Project, cx: &Ctx) -> Value {
 
 // ------------------------------------------------------------------ prompt + schema
 
-const SYSTEM: &str = "You are the assistant inside an interior design web app for one private user (Swiss German speaker). \
+pub(crate) const CONVENTIONS: &str = "You are the assistant inside an interior design web app for one private user (Swiss German speaker). \
 You get the current apartment model as compact JSON and the user's request (sometimes with photos of the real apartment). \
 \n\nModel conventions:\n\
 - All lengths in millimetres. Plan coordinates: x to the right, y DOWN (screen). `north_direction_in_plan` is the unit vector pointing north.\n\
@@ -255,37 +292,13 @@ You get the current apartment model as compact JSON and the user's request (some
 - Rooms are derived from closed wall loops (ids r1, r2 …). bbox = [min_x, min_y, max_x, max_y] of the net floor.\n\
 - Furniture: x/y = footprint centre, rotation_deg = plan rotation (0 = front faces +y/down), width along local x, depth along local y. \
 `clearance_to_walls` = free distance from each side to the next wall face.\n\
-- Materials: use ONLY ids from `materials` or a colour \"#rrggbb\". Furniture can only be placed from `asset_library`.\n\
-\nRules:\n\
-1. Always answer by calling the tool `respond`. `answer` is short, friendly German addressing the user with «du» (Swiss: write «ss», never «ß»; metres like 2.40 m). \
-Plain text only (no Markdown, no **bold**; simple lines starting with «–» are fine). Never mention internal ids like w14, o3, r2 in `answer` – \
-name things the way a person would (\"die Wand zwischen Büro und Bad\"); put the ids into `refs` instead.\n\
-2. Questions (\"passt …?\", \"wie breit …?\") → answer from the model data with concrete numbers; actions = [] unless the user asks for a change.\n\
-3. Change requests → the smallest set of actions that does exactly what was asked. Never change things that were not asked for. \
-The user reviews your proposal before anything is applied, so describe in `answer` what you propose.\n\
-4. \"Raum X cm grösser/breiter\" → move the right wall with `move_wall` (distance_mm + away_from_room = that room). Prefer moving an interior wall to a neighbour room unless asked otherwise.\n\
-5. Photos of the real apartment → identify floor, wall and ceiling surfaces per room and propose materials with `set_room` (floor/ceiling) \
-and `paint_room_walls` (all wall sides facing that room). Pick the closest library material; use a hex colour only for painted walls. \
-Mention in `answer` what you saw and how sure you are. If a photo cannot be matched to a room, say so.\n\
-6. If something is not in `asset_library`, build it from parametric shapes with `add_primitive` (shape, name, width/depth/height_mm, \
-x/y/z_mm, rotation_deg, material). Use realistic sizes and one action per element, e.g. a kitchen: base cabinets box 600 deep × 870 high \
-(material = front colour, often split into 600 mm units), worktop plate 40 mm at z_mm 870 slightly deeper (620), tall/upper cabinets \
-box 350 deep × 700 high at z_mm 1450 or wardrobe for tall units; dining table + chairs; podest = raised floor with steps (walkable). \
-Shapes against a wall: compute x/y so the back touches the wall's inner face and rotate so the front (+y local) faces into the room, \
-or set snap_to_wall. Rotation 0 = front faces +y (down in plan), 90 = front faces −x, 180 = −y, 270 = +x.\n\
-7. If the request is unclear or impossible, explain why and return no actions.\n\
-8. `refs` = ids of the elements your answer is about (they get highlighted).";
+- Materials: use ONLY ids from `materials` or a colour \"#rrggbb\". Library furniture is placed from `asset_library`; anything else is built from parametric shapes (`add_primitive`).\n\
+\n";
 
-fn schema() -> Value {
+
+/// One action (shared by the single-shot tool and the agent's `apply_actions`).
+pub(crate) fn action_schema() -> Value {
     json!({
-        "type": "object",
-        "required": ["answer", "actions"],
-        "properties": {
-            "answer": {"type": "string", "description": "German answer / explanation for the user."},
-            "refs": {"type": "array", "items": {"type": "string"}, "description": "Ids the answer refers to."},
-            "actions": {
-                "type": "array",
-                "items": {
                     "type": "object",
                     "required": ["type"],
                     "properties": {
@@ -317,20 +330,18 @@ fn schema() -> Value {
                         "light_type": {"type": "string", "enum": ["point", "spot"]}, "ceiling_height_mm": {"type": "number"},
                         "shape": {"type": "string", "enum": ["box", "cylinder", "plate", "sofa", "bed", "table", "chair", "shelf", "wardrobe", "podest"], "description": "add_primitive: parametric placeholder shape"}
                     }
-                }
-            }
-        }
-    })
+                })
 }
+
 
 // ------------------------------------------------------------------ action → ops
 
 type R<T> = Result<T, String>;
 
-fn num(a: &Value, k: &str) -> Option<f64> {
+pub(crate) fn num(a: &Value, k: &str) -> Option<f64> {
     a.get(k).and_then(|v| v.as_f64()).filter(|v| v.is_finite())
 }
-fn txt<'a>(a: &'a Value, k: &str) -> Option<&'a str> {
+pub(crate) fn txt<'a>(a: &'a Value, k: &str) -> Option<&'a str> {
     a.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty())
 }
 fn boolean(a: &Value, k: &str) -> Option<bool> {
@@ -357,9 +368,9 @@ fn fmt_m(mm: f64) -> String {
     format!("{:.2} m", mm / 1000.0)
 }
 
-struct Tr<'a> {
-    p: Project,
-    cx: &'a Ctx,
+pub(crate) struct Tr<'a> {
+    pub p: Project,
+    pub cx: &'a Ctx,
 }
 
 impl Tr<'_> {
@@ -400,7 +411,7 @@ impl Tr<'_> {
     }
 
     /// Translate one action. Returns a German description of the change.
-    fn action(&mut self, a: &Value) -> R<String> {
+    pub(crate) fn action(&mut self, a: &Value) -> R<String> {
         let fid = self.fid();
         let ty = txt(a, "type").ok_or("«type» fehlt")?;
         match ty {
@@ -852,7 +863,7 @@ impl Tr<'_> {
     }
 }
 
-fn human_label(p: &Project, cx: &Ctx, id: Uuid) -> String {
+pub(crate) fn human_label(p: &Project, cx: &Ctx, id: Uuid) -> String {
     let f = &p.floors[0];
     let rname = |i: usize| room_name(f, &cx.rooms[i]).unwrap_or_else(|| "Raum".into());
     if let Some(w) = f.wall(id) {
@@ -881,6 +892,36 @@ fn human_label(p: &Project, cx: &Ctx, id: Uuid) -> String {
     cx.ids.s(id)
 }
 
+/// Short ids from the model → `{kind, id, label}` for highlighting in the client.
+pub(crate) fn map_refs(p: &Project, cx: &Ctx, refs: &[Value]) -> Vec<Value> {
+    let f = &p.floors[0];
+    let mut out = Vec::new();
+    for r in refs {
+        let Some(s) = r.as_str() else { continue };
+        if let Some(room) = cx.room(s) {
+            let label = room_name(f, room).unwrap_or_else(|| "Raum".into());
+            out.push(json!({"kind": "room", "id": room.meta.map(|m| m.to_string()).unwrap_or_else(|| room.key.clone()), "label": label}));
+            continue;
+        }
+        let Some(id) = cx.ids.get(s) else { continue };
+        let kind = if f.walls.iter().any(|w| w.id == id) {
+            "wall"
+        } else if f.openings.iter().any(|o| o.id == id) {
+            "opening"
+        } else if f.nodes.iter().any(|n| n.id == id) {
+            "node"
+        } else if p.furniture.iter().any(|x| x.id == id) {
+            "furniture"
+        } else if p.lights.iter().any(|x| x.id == id) {
+            "light"
+        } else {
+            continue;
+        };
+        out.push(json!({"kind": kind, "id": id, "label": human_label(p, cx, id)}));
+    }
+    out
+}
+
 /// Result of a model response, translated.
 #[derive(Debug, Default)]
 struct Proposal {
@@ -901,30 +942,7 @@ fn translate(p: &Project, cx: &Ctx, v: &Value) -> Proposal {
         }
     }
     out.ops = commands::diff(p, &tr.p);
-    let f = &p.floors[0];
-    for r in v.get("refs").and_then(|x| x.as_array()).cloned().unwrap_or_default() {
-        let Some(s) = r.as_str() else { continue };
-        if let Some(room) = cx.room(s) {
-            let label = room_name(f, room).unwrap_or_else(|| "Raum".into());
-            out.refs.push(json!({"kind": "room", "id": room.meta.map(|m| m.to_string()).unwrap_or_else(|| room.key.clone()), "label": label}));
-            continue;
-        }
-        let Some(id) = cx.ids.get(s) else { continue };
-        let kind = if f.walls.iter().any(|w| w.id == id) {
-            "wall"
-        } else if f.openings.iter().any(|o| o.id == id) {
-            "opening"
-        } else if f.nodes.iter().any(|n| n.id == id) {
-            "node"
-        } else if p.furniture.iter().any(|x| x.id == id) {
-            "furniture"
-        } else if p.lights.iter().any(|x| x.id == id) {
-            "light"
-        } else {
-            continue;
-        };
-        out.refs.push(json!({"kind": kind, "id": id, "label": human_label(p, cx, id)}));
-    }
+    out.refs = map_refs(&tr.p, cx, v.get("refs").and_then(|x| x.as_array()).map(|a| a.as_slice()).unwrap_or(&[]));
     out
 }
 
@@ -932,11 +950,11 @@ fn translate(p: &Project, cx: &Ctx, v: &Value) -> Proposal {
 
 /// POST /api/projects/{id}/ai (multipart: `text`, `project` (snapshot JSON as the client sees it),
 /// `materials` (JSON [[id, name], …]), `history` (optional JSON [{role, text}]), `photo` 0..6 JPEG/PNG)
-pub async fn command(State(st): State<AppState>, Path(project_id): Path<Uuid>, mut mp: Multipart) -> ApiResult<Json<Value>> {
+pub async fn command(State(st): State<AppState>, Path(project_id): Path<Uuid>, mut mp: Multipart) -> ApiResult<axum::response::Response> {
     let llm = st.llm.clone().ok_or_else(|| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "KI ist nicht konfiguriert (LLM_API_KEY fehlt)"))?;
     let mut text = String::new();
     let mut project: Option<Project> = None;
-    let mut materials: Vec<(String, String)> = Vec::new();
+    let mut materials: Vec<Vec<String>> = Vec::new();
     let mut history: Vec<Value> = Vec::new();
     let mut photos: Vec<(String, Vec<u8>)> = Vec::new();
     let bad = |e: axum::extract::multipart::MultipartError| ApiError::bad_request(format!("Upload fehlerhaft: {e}"));
@@ -949,7 +967,7 @@ pub async fn command(State(st): State<AppState>, Path(project_id): Path<Uuid>, m
             }
             Some("materials") => {
                 let t = field.text().await.map_err(bad)?;
-                materials = serde_json::from_str(&t).map_err(|_| ApiError::unprocessable("«materials» muss [[id, name], …] sein"))?;
+                materials = serde_json::from_str(&t).map_err(|_| ApiError::unprocessable("«materials» muss [[id, name, farbe?], …] sein"))?;
             }
             Some("history") => {
                 let t = field.text().await.map_err(bad)?;
@@ -983,16 +1001,14 @@ pub async fn command(State(st): State<AppState>, Path(project_id): Path<Uuid>, m
     if project.id != project_id || project.floors.is_empty() {
         return Err(ApiError::unprocessable("Projekt passt nicht zur URL"));
     }
-    let assets: Vec<Asset> = sqlx::query("SELECT data FROM assets ORDER BY created_at DESC")
+    let mut assets: Vec<Asset> = sqlx::query("SELECT data FROM assets ORDER BY created_at DESC")
         .fetch_all(&st.db)
         .await?
         .iter()
         .filter_map(|r| r.try_get::<SqlJson<Asset>, _>("data").ok().map(|j| j.0))
         .collect();
-
-    let mut assets = assets;
     // Every primitive shape is placeable. Shapes without a library asset get an in-memory one that is only
-    // stored if the proposal actually uses it (see below).
+    // stored if the proposal actually uses it.
     let mut virtual_ids = Vec::new();
     for sh in PrimitiveShape::ALL {
         if !assets.iter().any(|a| a.primitive == Some(sh)) {
@@ -1001,7 +1017,9 @@ pub async fn command(State(st): State<AppState>, Path(project_id): Path<Uuid>, m
             assets.push(a);
         }
     }
-    let cx = build_ctx(&project, assets, materials);
+    let mats: Vec<(String, String)> = materials.iter().filter(|m| m.len() >= 2).map(|m| (m[0].clone(), m[1].clone())).collect();
+    let mut cx = build_ctx(&project, assets, mats);
+    cx.colors = materials.iter().filter(|m| m.len() >= 3).map(|m| (m[0].clone(), m[2].clone())).collect();
     let state = state_json(&project, &cx);
     let mut user = String::new();
     if !history.is_empty() {
@@ -1015,27 +1033,31 @@ pub async fn command(State(st): State<AppState>, Path(project_id): Path<Uuid>, m
     if !photos.is_empty() {
         user.push_str(&format!("\n\n{} Foto(s) der echten Wohnung angehängt.", photos.len()));
     }
-    let imgs: Vec<(&str, &[u8])> = photos.iter().map(|(m, b)| (m.as_str(), b.as_slice())).collect();
-    let started = std::time::Instant::now();
-    let v = llm
-        .structured_images(SYSTEM, &user, &imgs, TOOL, schema())
-        .await
-        .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, format!("KI-Anfrage fehlgeschlagen: {e:#}")))?;
-    let out = translate(&project, &cx, &v);
-    for a in cx.assets.iter().filter(|a| virtual_ids.contains(&a.id)) {
-        let used = out.ops.iter().any(|o| matches!(o, Op::PutFurniture { item } if item.asset == a.id));
-        if used {
-            crate::assets::store_asset(&st, a).await?;
+
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
+    tokio::spawn(async move {
+        let started = std::time::Instant::now();
+        let run = crate::ai_agent::Run { llm, project: project.clone(), cx, user_text: user, photos };
+        match crate::ai_agent::run(run, &tx).await {
+            Ok(o) => {
+                let ops = commands::diff(&project, &o.work);
+                for a in o.cx.assets.iter().filter(|a| virtual_ids.contains(&a.id)) {
+                    if ops.iter().any(|op| matches!(op, Op::PutFurniture { item } if item.asset == a.id)) {
+                        if let Err(e) = crate::assets::store_asset(&st, a).await {
+                            tracing::warn!("Basisform nicht speicherbar: {:?}", e.body);
+                        }
+                    }
+                }
+                tracing::info!(ms = started.elapsed().as_millis() as u64, ops = ops.len(), "KI-Agent fertig");
+                let _ = tx.send(json!({"type": "result", "answer": o.answer, "ops": ops, "changes": o.changes, "warnings": o.warnings, "refs": o.refs}));
+            }
+            Err(e) => {
+                tracing::warn!("KI-Agent fehlgeschlagen: {e:#}");
+                let _ = tx.send(json!({"type": "error", "error": format!("KI-Anfrage fehlgeschlagen: {e:#}")}));
+            }
         }
-    }
-    tracing::info!(ms = started.elapsed().as_millis() as u64, ops = out.ops.len(), "KI-Befehl");
-    Ok(Json(json!({
-        "answer": out.answer,
-        "ops": out.ops,
-        "changes": out.changes,
-        "warnings": out.warnings,
-        "refs": out.refs,
-    })))
+    });
+    Ok(crate::ai_agent::ndjson(rx))
 }
 
 #[cfg(test)]

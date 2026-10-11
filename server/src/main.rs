@@ -2,6 +2,7 @@
 //! Innenarchitekt backend: axum + Postgres + object store. See docs/api.md.
 
 mod ai;
+mod ai_agent;
 mod assets;
 mod auth;
 mod config;
@@ -86,7 +87,7 @@ pub fn router(st: AppState) -> Router {
         .fallback_service(files::web_router(&st.cfg.web_dir))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
         // GLBs are already Draco/WebP-compressed; images and SSE are excluded by the default predicate.
-        .layer(CompressionLayer::new().compress_when(DefaultPredicate::new().and(NotForContentType::const_new("model/gltf-binary"))))
+        .layer(CompressionLayer::new().compress_when(DefaultPredicate::new().and(NotForContentType::const_new("model/gltf-binary")).and(NotForContentType::const_new("application/x-ndjson"))))
         .layer(TraceLayer::new_for_http())
         .with_state(st)
 }
