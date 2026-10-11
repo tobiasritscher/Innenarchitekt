@@ -19,6 +19,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "three": "^0.186.1",
+    "three-gpu-pathtracer": "0.0.24",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

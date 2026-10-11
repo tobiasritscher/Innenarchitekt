@@ -33,4 +33,6 @@ export const live = {
   lightScale: 1,
   /** Virtual joystick (touch): x = strafe right, y = forward, each −1…1. */
   joy: { x: 0, y: 0 },
+  /** Current daylight (physical units, set by Daylight) – the path tracer builds its sky from it. */
+  sky: { skyLux: 16000, sunLux: 0, sinEl: 0.7, day: 1, clearness: 0.85 },
 }

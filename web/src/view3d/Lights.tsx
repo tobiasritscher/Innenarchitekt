@@ -156,7 +156,8 @@ function Lamp({ p, castShadow, mapSize }: { p: PlacedLight; castShadow: boolean;
   return (
     <group position={p.pos}>
       {lightEl}
-      <mesh geometry={bulbGeo} material={mat} raycast={noRaycast} />
+      {/* the light sits inside the bulb: the path tracer must let shadow rays pass */}
+      <mesh geometry={bulbGeo} material={mat} raycast={noRaycast} userData={{ bulb: true }} />
     </group>
   )
 }

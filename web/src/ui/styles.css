@@ -1525,6 +1525,58 @@ circle.ref-line {
 .v3d-shot {
   margin-top: 6px;
 }
+.v3d-shots .v3d-shot {
+  flex: 1;
+}
+/* path tracing («Foto rendern») */
+.v3d-pt {
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(340px, calc(100% - 20px));
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 5;
+}
+.v3d-pt-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.v3d-pt-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.v3d-pt-bar > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+.v3d-pt-err {
+  color: var(--danger);
+  margin: 0;
+  font-size: 12px;
+}
+.v3d-pt-opt {
+  font-size: 12px;
+}
+.v3d-pt-opt label.check {
+  font-size: 13px;
+}
+.v3d-pt .v3d-row button {
+  flex: 1;
+}
 .v3d-minimap {
   position: absolute;
   left: 10px;

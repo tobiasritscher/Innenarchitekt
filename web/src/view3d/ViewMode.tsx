@@ -19,6 +19,7 @@ import { FurnitureLayer } from './Furniture'
 import { LightRig } from './Lights'
 import { setWallCut } from './materials3d'
 import { Joystick, MiniMap } from './MiniMap'
+import { PathTraceHost, PathTraceOverlay, usePathTrace } from './PathTrace'
 import { WalkControls } from './WalkControls'
 
 const NO_LIGHTS: Light[] = []
@@ -30,8 +31,11 @@ export function ViewMode() {
   const glRef = useRef<WebGLRenderer | null>(null)
   const dpr = Math.min(q.dpr, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
   const coarse = useMemo(() => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches, [])
+  const tracing = usePathTrace((s) => s.active)
 
   useEffect(() => setWallCut(null), [])
+  // leaving view mode ends a running render
+  useEffect(() => () => usePathTrace.getState().stop(), [])
 
   return (
     <div className="v3d-view">
@@ -46,7 +50,8 @@ export function ViewMode() {
       >
         <RendererSetup postTone={q.ao} />
         <ViewScene />
-        {q.ao && (
+        <PathTraceHost />
+        {q.ao && !tracing && (
           <EffectComposer multisampling={4}>
             <N8AO aoRadius={0.6} distanceFalloff={0.6} intensity={2.2} halfRes quality="medium" />
             <ToneMapping mode={ToneMappingMode.AGX} />
@@ -54,6 +59,7 @@ export function ViewMode() {
         )}
       </Canvas>
       <ViewPanel glRef={glRef} />
+      <PathTraceOverlay onSave={() => saveCanvasPng(glRef.current, 'Foto')} />
       <MiniMap />
       {nav === 'walk' && coarse && <Joystick />}
       {nav === 'walk' && !coarse && <div className="v3d-overlay v3d-hint v3d-walk-hint">Klicken zum Umsehen · WASD/Pfeiltasten gehen · Shift schneller · Esc gibt die Maus frei</div>}
@@ -108,6 +114,19 @@ function Dollhouse({ bounds }: { bounds: Bounds }) {
 
 // ---------------------------------------------------------------- controls panel
 
+/** Download the current canvas as PNG: «<Projekt> <TT.MM.JJJJ> <HHMM>[ suffix].png». */
+function saveCanvasPng(gl: WebGLRenderer | null, suffix?: string) {
+  if (!gl) return
+  const { view } = useEditor.getState()
+  const project = useProject.getState().project
+  const url = gl.domElement.toDataURL('image/png')
+  const a = document.createElement('a')
+  const d = view.date.split('-').reverse().join('.')
+  a.download = `${(project?.name ?? 'Ansicht').replace(/[^\p{L}\p{N}_ -]/gu, '')} ${d} ${fmtTime(view.minutes).replace(':', '')}${suffix ? ` ${suffix}` : ''}.png`
+  a.href = url
+  a.click()
+}
+
 function isoOf(y: number, m: number, d: number) {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
@@ -122,16 +141,8 @@ function ViewPanel({ glRef }: { glRef: React.RefObject<WebGLRenderer | null> }) 
   const year = Number(view.date.slice(0, 4)) || new Date().getFullYear()
   const ev = Math.log2(view.exposure || 1)
 
-  const screenshot = () => {
-    const gl = glRef.current
-    if (!gl) return
-    const url = gl.domElement.toDataURL('image/png')
-    const a = document.createElement('a')
-    const d = view.date.split('-').reverse().join('.')
-    a.download = `${(project?.name ?? 'Ansicht').replace(/[^\p{L}\p{N}_ -]/gu, '')} ${d} ${fmtTime(view.minutes).replace(':', '')}.png`
-    a.href = url
-    a.click()
-  }
+  const screenshot = () => saveCanvasPng(glRef.current)
+  const tracing = usePathTrace((s) => s.active)
 
   return (
     <div className={`v3d-panel ${open ? '' : 'collapsed'}`}>
@@ -206,9 +217,14 @@ function ViewPanel({ glRef }: { glRef: React.RefObject<WebGLRenderer | null> }) 
             </span>
             <input type="range" min={900} max={2000} step={10} value={view.eyeHeightMm} onChange={(e) => setView({ eyeHeightMm: Number(e.target.value) })} />
           </label>
-          <button className="primary v3d-shot" onClick={screenshot}>
-            Screenshot (PNG)
-          </button>
+          <div className="v3d-row v3d-shots">
+            <button className="v3d-shot" onClick={screenshot} disabled={tracing}>
+              Screenshot (PNG)
+            </button>
+            <button className="primary v3d-shot" onClick={() => usePathTrace.getState().start()} disabled={tracing} title="Fotorealistisches Standbild mit Pathtracing (dauert je nach Gerät 1–3 Minuten)">
+              Foto rendern
+            </button>
+          </div>
         </div>
       )}
     </div>
