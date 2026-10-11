@@ -84,6 +84,7 @@ function IkeaImport() {
   return (
     <section>
       <h3>IKEA-Link</h3>
+      <p className="muted v3d-small">Produktlink oder Planer-Link (PAX, BESTÅ, PLATSA … – im Planer «Teilen» → Link kopieren).</p>
       <form
         className="v3d-inline"
         onSubmit={(e) => {
@@ -96,7 +97,7 @@ function IkeaImport() {
           {busy ? 'Lade …' : 'Import'}
         </button>
       </form>
-      {busy && <p className="muted v3d-small">Produktseite und 3D-Modell werden geladen …</p>}
+      {busy && <p className="muted v3d-small">IKEA-Daten und 3D-Modell werden geladen …</p>}
       {error && (
         <p className="error v3d-small">
           Import fehlgeschlagen: {error}. Nicht jedes Produkt hat ein 3D-Modell, und IKEA ändert die Seite gelegentlich – als Ersatz das GLB unten hochladen oder eine Basisform mit den Produktmassen anlegen.

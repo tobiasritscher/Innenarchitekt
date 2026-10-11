@@ -11,6 +11,7 @@ mod files;
 mod floorplan;
 mod glb;
 mod ikea;
+mod ikea_planner;
 mod jobs;
 mod llm;
 mod photo3d;

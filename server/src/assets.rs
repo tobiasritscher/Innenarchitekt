@@ -267,5 +267,9 @@ pub async fn import_ikea(State(st): State<AppState>, AppJson(b): AppJson<IkeaBod
     if b.url.trim().is_empty() {
         return Err(ApiError::unprocessable("IKEA-Link fehlt"));
     }
+    // planner share links (PAX, BESTÅ …) → combination as one piece
+    if let Some(link) = crate::ikea_planner::parse_link(&b.url) {
+        return Ok(Json(crate::ikea_planner::import(&st, link).await?));
+    }
     Ok(Json(crate::ikea::import(&st, &b.url).await?))
 }
