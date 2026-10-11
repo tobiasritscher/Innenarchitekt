@@ -49,6 +49,13 @@ export function surfaceIntensity(face: GlowFace, dims: V3, lumen: number): numbe
   return lumen / (Math.PI * Math.max(1e-4, a * b))
 }
 
+/** Luminance (nits) of a glowing surface: lumen spread over the side, or over the whole object's surface. */
+export function glowLuminance(face: GlowFace, dims: V3, lumen: number): number {
+  if (face !== 'All') return surfaceIntensity(face, dims, lumen)
+  const [w, d, h] = dims.map((v) => v / 1000)
+  return lumen / (Math.PI * Math.max(1e-4, 2 * (w * d + w * h + d * h)))
+}
+
 /** `n` turned towards the viewer (ray direction `dir`). */
 export function facingNormal(n: V3, dir: V3): V3 {
   return n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2] > 0 ? [-n[0], -n[1], -n[2]] : n

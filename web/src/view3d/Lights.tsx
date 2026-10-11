@@ -8,7 +8,7 @@ import { useEditor } from '../state/editor'
 import { useProject } from '../state/project'
 import { noRaycast, type PickHandlers } from './Building'
 import { furniturePosition, furnitureRotationY } from './Furniture'
-import { lightDir, surfaceIntensity, surfaceRect, type V3 } from './lightGeom'
+import { glowLuminance, lightDir, surfaceIntensity, surfaceRect, type V3 } from './lightGeom'
 import { kelvinToColor, lumenToIntensity } from './photometry'
 import { live } from './store'
 
@@ -95,9 +95,11 @@ function Marker({ p, pick, selected }: { p: PlacedLight; pick?: LightHandlers; s
   )
 }
 
-/** Physically based lamps for view mode. At most `budget` lamps that are on cast shadows (nearest to the camera). */
-export function LightRig({ budget, mapSize }: { budget: number; mapSize: number }) {
-  const placed = usePlacedLights()
+/** Physically based lamps for view mode. At most `budget` lamps that are on cast shadows (nearest to the camera).
+ *  `only`: lamps to render (light mode: the focused room's – other rooms have no walls there, their light would leak). */
+export function LightRig({ budget, mapSize, only }: { budget: number; mapSize: number; only?: (p: PlacedLight) => boolean }) {
+  const all = usePlacedLights()
+  const placed = useMemo(() => (only ? all.filter(only) : all), [all, only])
   const [shadowIds, setShadowIds] = useState<string[]>([])
   const acc = useRef(10)
   useFrame((state, dt) => {
@@ -182,13 +184,15 @@ function SurfaceLamp({ l }: { l: Light }) {
   useEffect(() => () => glow.dispose(), [glow])
   useLayoutEffect(() => {
     glow.emissive.copy(color)
-    glow.emissiveIntensity = l.on ? 4 : 0
-  }, [glow, color, l.on])
+  }, [glow, color])
   const face = l.kind.type === 'Surface' ? l.kind.face : 'All'
   const dims = (f?.dims_mm ?? [1, 1, 1]) as V3
   const base = l.on && f ? surfaceIntensity(face, dims, l.lumen) : 0
+  const lum = l.on && f ? glowLuminance(face, dims, l.lumen) : 0
   useFrame(() => {
     if (ref.current) ref.current.intensity = base * live.lightScale
+    // same physical scale as the lamps, so the glow reads right live and in the photo
+    glow.emissiveIntensity = lum * live.lightScale
   })
   if (!f) return null
   const frame = { position: furniturePosition(f), rotation: [0, furnitureRotationY(f.rotation_deg), 0] as [number, number, number] }

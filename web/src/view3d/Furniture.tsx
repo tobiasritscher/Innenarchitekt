@@ -1,7 +1,7 @@
 // Furniture instances: primitive meshes from the core or normalised GLB models.
 import { Component, Suspense, useEffect, useLayoutEffect, useMemo, type ReactNode } from 'react'
 import { Box3, EdgesGeometry, LineBasicMaterial, MeshStandardMaterial, Vector3, type Object3D, type Material, type Mesh } from 'three'
-import type { ThreeEvent } from '@react-three/fiber'
+import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import { useOverlaps } from '../core/derived'
 import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
@@ -13,7 +13,9 @@ import { useProject } from '../state/project'
 import { acquirePrimitive, releasePrimitive } from './geometry'
 import { furnitureMaterial, mats } from './materials3d'
 import { noRaycast, unitBox, type PickHandlers } from './Building'
+import { glowLuminance, type V3 } from './lightGeom'
 import { kelvinToColor } from './photometry'
+import { live } from './store'
 
 export const DRACO_PATH = '/draco/'
 
@@ -61,21 +63,24 @@ export function furnitureRotationY(rotationDeg: number) {
 }
 
 /** Emissive stand-in material for a furniture glowing as a whole; null without such a light. */
-function useGlowMaterial(l: Light | undefined): MeshStandardMaterial | null {
+function useGlowMaterial(l: Light | undefined, dims: V3): MeshStandardMaterial | null {
   const has = !!l
   const mat = useMemo(() => (has ? new MeshStandardMaterial({ color: '#f4efe6', roughness: 0.6 }) : null), [has])
   useEffect(() => () => mat?.dispose(), [mat])
   useLayoutEffect(() => {
-    if (!mat || !l) return
-    mat.emissive.copy(kelvinToColor(l.color_temp_k))
-    mat.emissiveIntensity = l.on ? 3 : 0
+    if (mat && l) mat.emissive.copy(kelvinToColor(l.color_temp_k))
   }, [mat, l])
+  const lum = l?.on ? glowLuminance('All', dims, l.lumen) : 0
+  // physical scale like the lamps (live and photo)
+  useFrame(() => {
+    if (mat) mat.emissiveIntensity = lum * live.lightScale
+  })
   return mat
 }
 
 function FurnitureItem({ item, pick, outlineState, castShadow, glow }: { item: FurnitureInstance; pick?: FurnitureHandlers; outlineState: 'select' | 'overlap' | 'hover' | null; castShadow: boolean; glow?: Light }) {
   const asset = useAssets((s) => s.assets.find((a) => a.id === item.asset))
-  const glowMat = useGlowMaterial(glow)
+  const glowMat = useGlowMaterial(glow, item.dims_mm as V3)
   const s = { kind: 'furniture' as const, id: item.id }
   const dims: [number, number, number] = [item.dims_mm[0], item.dims_mm[1], item.dims_mm[2]]
   const events = pick

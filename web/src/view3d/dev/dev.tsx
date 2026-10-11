@@ -27,6 +27,8 @@ const assets = [
   asset('Regal', 'Shelf', [800, 350, 1800]),
   asset('Podest mit Stufen', 'Podest', [3000, 2500, 340]),
   asset('Stehlampe', 'Cylinder', [300, 300, 1600], { kind: { type: 'Point' }, offset_mm: [0, 0, 1650], lumen: 1200, color_temp_k: 2700 }),
+  asset('LED-Streifen', 'Plate', [1000, 12, 10]),
+  asset('Lampenschirm', 'Cylinder', [400, 400, 300]),
   { ...asset('Kommode (Modell fehlt)', 'Box', [800, 450, 900]), kind: 'Upload', model_url: '/api/assets/x/model.glb', warnings: ['Abweichung 4 %'] },
 ]
 const glbAsset = { ...asset('Sessel (GLB-Test)', 'Box', [800, 850, 900]), kind: 'Upload', model_url: '/api/assets/demo/model.glb' }
@@ -113,6 +115,9 @@ function buildProject() {
   ]
   const F = (a: (typeof assets)[number], x: number, y: number, rot = 0, material: string | null = null) => ({ id: id(), asset: a.id, name: a.name, pos_mm: [x, y, 0], rotation_deg: rot, dims_mm: [...a.dims_mm], material, walkable: false, overlap_ok: false, footprint: [], passable: false })
   const lamp = F(A['Stehlampe'], 600, 6300, 0, 'metal:black')
+  // light mode test pieces: LED strip under the ceiling (glows down), a glowing shade
+  const strip = { ...F(A['LED-Streifen'], 3000, 3000, 0, 'paint:white'), pos_mm: [3000, 3000, 2490], dims_mm: [2000, 12, 10], overlap_ok: true, passable: true }
+  const shade = { ...F(A['Lampenschirm'], 1200, 3200, 0, null), pos_mm: [1200, 3200, 1500] }
   // living area raised by two steps (podium in front of the sofa)
   const podium = { ...F(A['Podest mit Stufen'], 3000, 1400, 0, 'wood:oak'), dims_mm: [5700, 2500, 340], walkable: true }
   const furniture = [
@@ -130,6 +135,8 @@ function buildProject() {
     F(A['Regal'], 3100, 5100, 30), // overlaps the table on purpose
     { ...F(A['Sessel (GLB-Test)'], 4600, 1600, 300), pos_mm: [4600, 1600, 340] },
     lamp,
+    strip,
+    shade,
   ]
   const light = (name: string, x: number, y: number, z: number, lumen: number, k: number, kind: unknown = { type: 'Point' }, attached: string | null = null) => ({ id: id(), name, kind, pos_mm: [x, y, z], lumen, color_temp_k: k, on: true, attached_to: attached })
   const lights = [
@@ -138,6 +145,9 @@ function buildProject() {
     light('Deckenleuchte Schlafen', 8000, 1750, 2450, 1000, 3000),
     light('Panel Bad', 8000, 5250, 2480, 2000, 4000, { type: 'Area', w_mm: 600, h_mm: 600 }),
     light('Licht Stehlampe', 0, 0, 1650, 1200, 2700, { type: 'Point' }, lamp.id),
+    light('Uplight Ecke', 500, 3500, 30, 600, 2700, { type: 'Spot', angle_deg: 60, tilt_deg: 180, heading_deg: 0 }),
+    light('LED Decke', 0, 0, 0, 1800, 3000, { type: 'Surface', face: 'Down' }, strip.id),
+    light('Schirm', 0, 0, 150, 900, 2700, { type: 'Surface', face: 'All' }, shade.id),
   ]
   return {
     id: '00000000-0000-4000-8000-00000000d3d0',

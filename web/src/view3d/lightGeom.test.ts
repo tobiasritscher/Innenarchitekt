@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aimAt, facingNormal, lightDir, stripFromDrag, surfaceIntensity, surfaceRect } from './lightGeom'
+import { aimAt, facingNormal, glowLuminance, lightDir, stripFromDrag, surfaceIntensity, surfaceRect } from './lightGeom'
 import type { Light } from '../core/generated/Light'
 import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
 
@@ -79,5 +79,15 @@ describe('aimAt', () => {
   })
   it('heading relative to the host furniture', () => {
     expect(aimAt([0, 0, 1000], [0, 2000, 1000], 90).heading_deg).toBe(0)
+  })
+})
+
+describe('glowLuminance', () => {
+  it('side: lumen over the side area (like surfaceIntensity)', () => {
+    expect(glowLuminance('Down', [1000, 10, 12], 900)).toBeCloseTo(900 / (Math.PI * 0.01))
+  })
+  it('whole object: lumen over its whole surface', () => {
+    // 1 m cube: 6 m²
+    expect(glowLuminance('All', [1000, 1000, 1000], 600)).toBeCloseTo(600 / (Math.PI * 6))
   })
 })

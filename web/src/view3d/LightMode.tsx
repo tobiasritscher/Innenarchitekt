@@ -58,6 +58,10 @@ const GLOW_FACES: [GlowFace, string][] = [
   ['Up', 'Oben'],
   ['Front', 'Vorne'],
 ]
+/** Time of the last placement: the click that placed must not also select/deselect what's below. */
+let placedAt = 0
+const justPlaced = () => performance.now() - placedAt < 400
+
 /** Tools whose floor clicks go to the ceiling above. */
 const CEILING_TOOLS: LightTool[] = ['Point', 'Spot', 'Area']
 
@@ -154,7 +158,7 @@ export function LightMode() {
           glRef.current = gl
         }}
         onPointerMissed={(e) => {
-          if (e.button === 0 && !useView3D.getState().lightTool) useEditor.getState().select(null)
+          if (e.button === 0 && !useView3D.getState().lightTool && !justPlaced()) useEditor.getState().select(null)
         }}
       >
         <RendererSetup postTone={q.ao} />
@@ -277,7 +281,7 @@ function LightScene({ room }: { room: DerivedRoom }) {
     () => ({
       onClick: (e, s) => {
         e.stopPropagation()
-        if (e.delta > 5 || useView3D.getState().lightTool) return
+        if (e.delta > 5 || useView3D.getState().lightTool || justPlaced()) return
         const door = s.kind === 'opening' && useProject.getState().project?.floors[0].openings.some((o) => o.id === s.id && o.kind.type === 'Door')
         if (door) useView3D.getState().toggleDoor(s.id)
         else useEditor.getState().select(null)
@@ -309,7 +313,7 @@ function LightScene({ room }: { room: DerivedRoom }) {
           }
           return
         }
-        if (tool) return
+        if (tool || justPlaced()) return
         useEditor.getState().select(glow ? { kind: 'light', id: glow.id } : null)
       },
     }),
@@ -321,7 +325,7 @@ function LightScene({ room }: { room: DerivedRoom }) {
     () => ({
       onClick: (e, s) => {
         e.stopPropagation()
-        if (e.delta > 5 || useView3D.getState().lightTool) return
+        if (e.delta > 5 || useView3D.getState().lightTool || justPlaced()) return
         useEditor.getState().select(s)
       },
       onDown: (e: ThreeEvent<PointerEvent>, p: PlacedLight) => {
@@ -363,7 +367,7 @@ function LightScene({ room }: { room: DerivedRoom }) {
       <Daylight walk={false} bounds={bounds} mapSize={q.sunMap} lampLux={lampLux} />
       <Building ceilings="shadow" focus={room} pick={buildingPick} />
       <FurnitureLayer pick={furniturePick} only={furnitureIn} />
-      <LightRig budget={q.budget} mapSize={q.lampMap} />
+      <LightRig budget={q.budget} mapSize={q.lampMap} only={lightIn} />
       <LightMarkers pick={lightPick} only={lightIn} />
       <AimHandle ctx={ctx} />
       <PlaceTool ctx={ctx} inside={inside} />
@@ -391,26 +395,36 @@ function PlaceTool({ ctx, inside }: { ctx: () => HitCtx; inside: (x: number, y: 
   useEffect(() => {
     if (!tool || tool === 'Glow') return
     const el = gl.domElement
-    let down: { x: number; y: number; start: SurfaceHit | null } | null = null
+    let down: { x: number; y: number; start: SurfaceHit | null; end: V3 | null } | null = null
+    /** Strip end on the start surface's plane; off the room (ray past the wall into the background) keeps the last one. */
+    const stripEnd = (e: PointerEvent): V3 | null => {
+      if (!down?.start) return null
+      const end = planeHit(e, ctx(), down.start.at, down.start.normal)
+      const ceiling = ctx().ceilingMm
+      const n = down.start.normal
+      // test a point 5 cm in front of the surface: a wall face lies exactly on the room's edge
+      if (end && inside(end[0] + n[0] * 50, end[1] + n[1] * 50) && end[2] > -10 && end[2] < ceiling + 10) down.end = end
+      return down.end
+    }
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0) return
       const start = tool === 'Strip' ? surfaceHit(e, ctx(), e.altKey) : null
-      down = { x: e.clientX, y: e.clientY, start }
+      down = { x: e.clientX, y: e.clientY, start, end: null }
       if (start && controls) controls.enabled = false
     }
     const onMove = (e: PointerEvent) => {
       if (!down?.start) return
-      const end = planeHit(e, ctx(), down.start.at, down.start.normal)
+      const end = stripEnd(e)
       if (end) setStrip({ start: down.start, end })
     }
     const onUp = async (e: PointerEvent) => {
       if (!down || e.button !== 0) return
+      const end = stripEnd(e)
       const d = down
       down = null
       if (controls) controls.enabled = true
       if (tool === 'Strip') {
         setStrip(null)
-        const end = d.start && planeHit(e, ctx(), d.start.at, d.start.normal)
         if (!d.start || !end) return
         await placeStrip(d.start, end)
         if (!e.shiftKey) useView3D.getState().setLightTool(null)
@@ -424,20 +438,22 @@ function PlaceTool({ ctx, inside }: { ctx: () => HitCtx; inside: (x: number, y: 
       const t = LAMP_TEMPLATES[key]
       const ops = st.engine.cmd_place_light({ ...t, id: newId(), pos_mm: [0, 0, 0], attached_to: null }, h.at[0], h.at[1], h.at[2], h.normal[0], h.normal[1], h.normal[2], h.furniture ?? '') as Op[]
       if (st.commit(ops, `${t.name} setzen`)) {
+        placedAt = performance.now()
         useEditor.getState().select({ kind: 'light', id: (ops[0] as { light: Light }).light.id })
         if (!e.shiftKey) useView3D.getState().setLightTool(null)
       }
     }
     const cursor = el.style.cursor
     el.style.cursor = 'copy'
+    // move/up on the window: a drag may end over the panel
     el.addEventListener('pointerdown', onDown)
-    el.addEventListener('pointermove', onMove)
-    el.addEventListener('pointerup', onUp)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
     return () => {
       el.style.cursor = cursor
       el.removeEventListener('pointerdown', onDown)
-      el.removeEventListener('pointermove', onMove)
-      el.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
       if (controls) controls.enabled = true
       setStrip(null)
     }
@@ -469,7 +485,10 @@ async function placeStrip(start: SurfaceHit, end: V3) {
       light: { id: newId(), name: 'LED-Streifen', kind: { type: 'Surface', face: s.face }, pos_mm: [0, 0, 0], lumen: Math.round((LED_LM_PER_M * s.dims_mm[0]) / 1000), color_temp_k: LED_KELVIN, on: true, attached_to: fid },
     },
   ]
-  if (useProject.getState().commit(ops, 'LED-Streifen setzen')) useEditor.getState().select({ kind: 'light', id: (ops[1] as { light: Light }).light.id })
+  if (useProject.getState().commit(ops, 'LED-Streifen setzen')) {
+    placedAt = performance.now()
+    useEditor.getState().select({ kind: 'light', id: (ops[1] as { light: Light }).light.id })
+  }
 }
 
 const AIM_M = 0.6
