@@ -654,6 +654,7 @@ impl Tr<'_> {
                         rotation_deg: rot.rem_euclid(360.0) as f32,
                         dims_mm: asset.dims_mm,
                         material: None,
+                        walkable: asset.primitive.is_some_and(|s| s.walkable()),
                     },
                 }];
                 if let Some(l) = &asset.light {
