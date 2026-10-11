@@ -252,7 +252,7 @@ pub(crate) fn state_json(p: &Project, cx: &Ctx) -> Value {
         .iter()
         .map(|l| {
             json!({
-                "id": ids.s(l.id), "name": l.name, "type": match l.kind { LightKind::Point => "point", LightKind::Spot { .. } => "spot", LightKind::Area { .. } => "area" },
+                "id": ids.s(l.id), "name": l.name, "type": match l.kind { LightKind::Point => "point", LightKind::Spot { tilt_deg, .. } if tilt_deg > 135.0 => "uplight", LightKind::Spot { .. } => "spot", LightKind::Area { .. } => "area", LightKind::Surface { .. } => "glow" },
                 "pos": l.pos_mm, "attached_to": l.attached_to.map(|a| ids.s(a)),
                 "lumen": l.lumen, "kelvin": l.color_temp_k, "on": l.on,
             })
@@ -837,7 +837,7 @@ impl Tr<'_> {
                     l.name = n.to_string();
                 }
                 if let Some(t) = txt(a, "light_type") {
-                    l.kind = if t == "spot" { LightKind::Spot { angle_deg: 40.0 } } else { LightKind::Point };
+                    l.kind = if t == "spot" { LightKind::Spot { angle_deg: 40.0, tilt_deg: 0.0, heading_deg: 0.0 } } else { LightKind::Point };
                 }
                 if let Some(v) = boolean(a, "on") {
                     l.on = v;

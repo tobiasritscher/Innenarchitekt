@@ -134,7 +134,7 @@ function buildProject() {
   const light = (name: string, x: number, y: number, z: number, lumen: number, k: number, kind: unknown = { type: 'Point' }, attached: string | null = null) => ({ id: id(), name, kind, pos_mm: [x, y, z], lumen, color_temp_k: k, on: true, attached_to: attached })
   const lights = [
     light('Pendel Esstisch', 3000, 5000, 1900, 1500, 2700),
-    light('Spot Sofa', 2600, 2400, 2450, 600, 3000, { type: 'Spot', angle_deg: 60 }),
+    light('Spot Sofa', 2600, 2400, 2450, 600, 3000, { type: 'Spot', angle_deg: 60, tilt_deg: 0, heading_deg: 0 }),
     light('Deckenleuchte Schlafen', 8000, 1750, 2450, 1000, 3000),
     light('Panel Bad', 8000, 5250, 2480, 2000, 4000, { type: 'Area', w_mm: 600, h_mm: 600 }),
     light('Licht Stehlampe', 0, 0, 1650, 1200, 2700, { type: 'Point' }, lamp.id),

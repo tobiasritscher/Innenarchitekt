@@ -443,7 +443,7 @@ function Footprint({ src, it }: { src: PlanSource; it: FurnitureInstance }) {
 function LightProps({ src, l, onDelete }: { src: PlanSource; l: Light; onDelete: () => void }) {
   const put = (n: Light, label: string) => src.commit([{ op: 'PutLight', light: n }], label)
   const setKind = (t: LightKind['type']) => {
-    const kind: LightKind = t === 'Point' ? { type: 'Point' } : t === 'Spot' ? { type: 'Spot', angle_deg: 40 } : { type: 'Area', w_mm: 600, h_mm: 600 }
+    const kind: LightKind = t === 'Point' ? { type: 'Point' } : t === 'Spot' ? { type: 'Spot', angle_deg: 40, tilt_deg: 0, heading_deg: 0 } : { type: 'Area', w_mm: 600, h_mm: 600 }
     put({ ...l, kind }, 'Lichtart ändern')
   }
   const owner = l.attached_to ? src.project.furniture.find((f) => f.id === l.attached_to) : undefined
@@ -456,7 +456,7 @@ function LightProps({ src, l, onDelete }: { src: PlanSource; l: Light; onDelete:
       </label>
       <Seg value={l.kind.type} options={[['Point', 'Punkt'], ['Spot', 'Spot'], ['Area', 'Fläche']]} onChange={setKind} />
       {l.kind.type === 'Spot' && (
-        <NumberField label="Öffnungswinkel" suffix="°" min={5} max={170} value={l.kind.angle_deg} onCommit={(v) => put({ ...l, kind: { type: 'Spot', angle_deg: v } }, 'Spotwinkel')} />
+        <NumberField label="Öffnungswinkel" suffix="°" min={5} max={170} value={l.kind.angle_deg} onCommit={(v) => l.kind.type === 'Spot' && put({ ...l, kind: { ...l.kind, angle_deg: v } }, 'Spotwinkel')} />
       )}
       {l.kind.type === 'Area' && (
         <div className="row">

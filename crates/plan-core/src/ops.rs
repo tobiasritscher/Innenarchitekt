@@ -163,6 +163,9 @@ pub fn apply(p: &mut Project, op: &Op) -> Result<Op, OpError> {
             Op::PutFurniture { item: old }
         }
         Op::PutLight { light } => {
+            if matches!(light.kind, LightKind::Surface { .. }) && light.attached_to.is_none() {
+                return Err(OpError::Invalid("Leuchtfläche ohne Objekt".into()));
+            }
             if let Some(att) = light.attached_to {
                 if !p.furniture.iter().any(|f| f.id == att) {
                     return Err(OpError::NotFound(att));

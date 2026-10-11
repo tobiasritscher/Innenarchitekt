@@ -6,6 +6,7 @@ pub mod commands;
 pub mod furniture;
 pub mod geom;
 pub mod import;
+pub mod lights;
 pub mod mesh;
 pub mod model;
 pub mod ops;

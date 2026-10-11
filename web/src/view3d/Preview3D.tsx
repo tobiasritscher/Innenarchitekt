@@ -349,7 +349,7 @@ function FitCamera({ bounds }: { bounds: Bounds }) {
 
 const LAMPS: Record<LampType, { name: string; kind: Light['kind']; lumen: number }> = {
   Point: { name: 'Deckenleuchte', kind: { type: 'Point' }, lumen: 800 },
-  Spot: { name: 'Spot', kind: { type: 'Spot', angle_deg: 40 }, lumen: 450 },
+  Spot: { name: 'Spot', kind: { type: 'Spot', angle_deg: 40, tilt_deg: 0, heading_deg: 0 }, lumen: 450 },
   Area: { name: 'Leuchtfläche', kind: { type: 'Area', w_mm: 600, h_mm: 600 }, lumen: 3000 },
 }
 export const LAMP_LABEL: Record<LampType, string> = { Point: 'Deckenleuchte', Spot: 'Spot', Area: 'Leuchtfläche' }

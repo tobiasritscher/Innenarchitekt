@@ -225,8 +225,31 @@ pub struct FurnitureInstance {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub enum LightKind {
     Point,
-    Spot { angle_deg: f32 },
+    Spot {
+        angle_deg: f32,
+        /// 0 = straight down, 90 = horizontal, 180 = straight up.
+        #[serde(default)]
+        tilt_deg: f32,
+        /// Plan direction it leans towards (deg, like furniture rotation: 0 = +x, turning towards +y).
+        /// Relative to the furniture if attached.
+        #[serde(default)]
+        heading_deg: f32,
+    },
     Area { w_mm: u32, h_mm: u32 },
+    /// The furniture it is attached to glows (lamp shade, LED strip). `pos_mm` is ignored. Requires `attached_to`.
+    Surface { face: GlowFace },
+}
+
+/// Which part of a glowing object emits light.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub enum GlowFace {
+    /// Whole object (lamp shade): light in all directions.
+    All,
+    Down,
+    Up,
+    /// Local +y side.
+    Front,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

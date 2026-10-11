@@ -32,6 +32,9 @@ export function lumenToIntensity(kind: LightKind, lumen: number): number {
       const half = (Math.max(5, Math.min(170, kind.angle_deg)) / 2) * (Math.PI / 180)
       return lumen / (2 * Math.PI * (1 - Math.cos(half)))
     }
+    // Surface: the real intensity needs the object's size (lightGeom.surfaceIntensity); this keeps the switch total.
+    case 'Surface':
+      return lumen / (4 * Math.PI)
     case 'Area': {
       const a = Math.max(0.0025, (kind.w_mm / 1000) * (kind.h_mm / 1000))
       return lumen / (Math.PI * a)
