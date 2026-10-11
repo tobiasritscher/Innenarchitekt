@@ -116,7 +116,7 @@ export const WallsLayer = memo(function WallsLayer({ footprints, floor }: { foot
           key={fp.wall}
           data-k="wall"
           data-id={fp.wall}
-          className={`pl-wall${kinds.get(fp.wall)?.kind === 'Exterior' ? ' ext' : ''}${kinds.get(fp.wall)?.glazed ? ' glass' : ''}`}
+          className={`pl-wall${kinds.get(fp.wall)?.kind === 'Exterior' ? ' ext' : ''}${kinds.get(fp.wall)?.glazed ? ' glass' : ''}${kinds.get(fp.wall)?.height_mm != null && kinds.get(fp.wall)!.height_mm! < floor.ceiling_height_mm ? ' low' : ''}`}
           points={polyPoints(fp.corners)}
         />
       ))}

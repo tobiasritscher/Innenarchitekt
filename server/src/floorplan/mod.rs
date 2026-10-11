@@ -45,6 +45,9 @@ pub struct AnalyzeInput {
     pub corners: Option<[[f64; 2]; 4]>,
     /// Floor the proposal ops refer to.
     pub floor_id: Uuid,
+    /// Paper size of one source pixel (mm), known for PDFs rendered at a known resolution.
+    /// Together with a printed scale ("1:100") this gives the exact plan scale.
+    pub paper_mm_per_px: Option<f64>,
 }
 
 pub struct AnalyzeOutput {
@@ -63,13 +66,15 @@ pub type Progress<'a> = &'a (dyn Fn(f32, &str) + Send + Sync);
 pub struct Options {
     /// Force the scale (skips estimation).
     pub mm_per_px: Option<f64>,
+    /// Paper mm per *source* pixel (see [`AnalyzeInput::paper_mm_per_px`]).
+    pub paper_mm_per_px: Option<f64>,
 }
 
 const LLM_IMAGE_MAX_DEFAULT: u32 = 1568;
 
 pub async fn analyze(input: AnalyzeInput, llm: Option<&LlmClient>, progress: Progress<'_>) -> anyhow::Result<AnalyzeOutput> {
     let started = std::time::Instant::now();
-    let AnalyzeInput { image, corners, floor_id } = input;
+    let AnalyzeInput { image, corners, floor_id, paper_mm_per_px } = input;
     progress(0.02, "Bild entzerren");
     let (prep, cvres, deskew_note) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
         let prep = preprocess::preprocess(&image, corners)?;
@@ -114,7 +119,8 @@ pub async fn analyze(input: AnalyzeInput, llm: Option<&LlmClient>, progress: Pro
 
     progress(0.75, "Zusammenführen");
     let p2 = prep.clone();
-    let stage = tokio::task::spawn_blocking(move || fuse_stage(&p2, &cvres, sem, &Options::default())).await?;
+    let opts = Options { paper_mm_per_px, ..Default::default() };
+    let stage = tokio::task::spawn_blocking(move || fuse_stage(&p2, &cvres, sem, &opts)).await?;
 
     progress(0.85, "Bereinigen");
     let p3 = prep.clone();
@@ -129,7 +135,8 @@ pub async fn analyze(input: AnalyzeInput, llm: Option<&LlmClient>, progress: Pro
 pub fn analyze_blocking(input: &AnalyzeInput, sem: Option<Semantics>, opts: &Options) -> anyhow::Result<AnalyzeOutput> {
     let prep = preprocess::preprocess(&input.image, input.corners)?;
     let (prep, cvres, _) = detect_deskewed(prep);
-    let stage = fuse_stage(&prep, &cvres, sem, opts);
+    let opts = Options { paper_mm_per_px: opts.paper_mm_per_px.or(input.paper_mm_per_px), ..opts.clone() };
+    let stage = fuse_stage(&prep, &cvres, sem, &opts);
     clean_stage(&prep, stage, input.floor_id)
 }
 
@@ -212,7 +219,8 @@ pub fn fuse_stage(prep: &Prepared, cvres: &CvResult, mut sem: Option<Semantics>,
             if let Some(s) = &sem {
                 doors.extend(s.doors.iter().map(|d| d.width));
             }
-            fusion::estimate_scale(sem.as_ref(), &walls_px, &doors)
+            let paper = opts.paper_mm_per_px.map(|p| p / prep.px_per_src);
+            fusion::estimate_scale(sem.as_ref(), &walls_px, &doors, paper)
         }
     };
     let m = scale.mm_per_px;
@@ -323,8 +331,8 @@ mod tests {
     fn synthetic_cv_only_within_5cm() {
         for case in synth::cases() {
             let floor_id = Uuid::new_v4();
-            let input = AnalyzeInput { image: case.png.clone(), corners: None, floor_id };
-            let out = analyze_blocking(&input, None, &Options { mm_per_px: Some(case.mm_per_px) }).unwrap();
+            let input = AnalyzeInput { image: case.png.clone(), corners: None, floor_id, paper_mm_per_px: None };
+            let out = analyze_blocking(&input, None, &Options { mm_per_px: Some(case.mm_per_px), ..Default::default() }).unwrap();
             assert!(!out.proposal.used_llm);
             let res = proposal_floor(&out.proposal, floor_id);
             let pp = preprocess::preprocess(&case.png, None).unwrap();
@@ -342,7 +350,7 @@ mod tests {
         let case = &synth::cases()[0];
         let floor_id = Uuid::new_v4();
         let sem = synth::mock_semantics(case);
-        let input = AnalyzeInput { image: case.png.clone(), corners: None, floor_id };
+        let input = AnalyzeInput { image: case.png.clone(), corners: None, floor_id, paper_mm_per_px: None };
         let out = analyze_blocking(&input, Some(sem), &Options::default()).unwrap();
         let p = &out.proposal;
         assert!(p.used_llm);
@@ -390,7 +398,7 @@ mod robustness_tests {
         if let Ok(p) = std::env::var("DEGRADED_OUT") { std::fs::write(p, &jpg).unwrap(); }
         let floor_id = Uuid::new_v4();
         let pp = preprocess::preprocess(&jpg, None).unwrap();
-        let out = analyze_blocking(&AnalyzeInput { image: jpg.clone(), corners: None, floor_id }, None, &Options { mm_per_px: Some(case.mm_per_px / pp.src_scale) }).unwrap();
+        let out = analyze_blocking(&AnalyzeInput { image: jpg.clone(), corners: None, floor_id, paper_mm_per_px: None }, None, &Options { mm_per_px: Some(case.mm_per_px / pp.src_scale), ..Default::default() }).unwrap();
         let res = proposal_floor(&out.proposal, floor_id);
         // rotation breaks the exact truth mapping → bbox/ICP alignment (no reference image)
         let mut truth = case.truth.clone();
@@ -412,7 +420,7 @@ mod robustness_tests {
             msgs.lock().unwrap().push(m.to_string());
         };
         let floor_id = Uuid::new_v4();
-        let out = analyze(AnalyzeInput { image: case.png.clone(), corners: None, floor_id }, None, &cb).await.unwrap();
+        let out = analyze(AnalyzeInput { image: case.png.clone(), corners: None, floor_id, paper_mm_per_px: None }, None, &cb).await.unwrap();
         let msgs = msgs.into_inner().unwrap();
         for m in ["Bild entzerren", "Wände erkennen", "Zusammenführen", "Bereinigen"] {
             assert!(msgs.iter().any(|x| x == m), "{msgs:?}");

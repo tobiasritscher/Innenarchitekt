@@ -1,7 +1,8 @@
 // Preparing the uploaded floor plan in the browser: PDF → PNG (page 1), photos → upright, ≤ 2400 px.
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
-export type PreparedImage = { blob: Blob; url: string; width: number; height: number; name: string }
+/** `paperMmPerPx`: paper size of one pixel (PDF only) – with a printed scale like 1:100 the exact plan scale. */
+export type PreparedImage = { blob: Blob; url: string; width: number; height: number; name: string; paperMmPerPx?: number }
 
 const MAX_PX = 2400
 const PDF_TARGET_PX = 2000
@@ -10,7 +11,7 @@ function canvasToBlob(c: HTMLCanvasElement, type: string, quality?: number): Pro
   return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('Bild konnte nicht erzeugt werden'))), type, quality))
 }
 
-export async function renderPdfFirstPage(file: Blob): Promise<Blob> {
+export async function renderPdfFirstPage(file: Blob): Promise<{ blob: Blob; paperMmPerPx: number }> {
   const pdfjs = await import('pdfjs-dist')
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
   const data = new Uint8Array(await file.arrayBuffer())
@@ -28,7 +29,9 @@ export async function renderPdfFirstPage(file: Blob): Promise<Blob> {
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     await page.render({ canvas, canvasContext: ctx, viewport: vp }).promise
-    return await canvasToBlob(canvas, 'image/png')
+    // PDF user space: 1 unit = 1/72 inch at viewport scale 1
+    const paperMmPerPx = (25.4 / 72) * (vp1.width / canvas.width)
+    return { blob: await canvasToBlob(canvas, 'image/png'), paperMmPerPx }
   } finally {
     void task.destroy()
   }
@@ -37,7 +40,8 @@ export async function renderPdfFirstPage(file: Blob): Promise<Blob> {
 /** Normalise any supported input to an upright raster image we can show and upload. */
 export async function prepareImage(file: File): Promise<PreparedImage> {
   const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
-  let blob: Blob = isPdf ? await renderPdfFirstPage(file) : file
+  const pdf = isPdf ? await renderPdfFirstPage(file) : null
+  let blob: Blob = pdf ? pdf.blob : file
   if (!isPdf && !/^image\/(png|jpeg|jpg|webp|heic|heif)$/i.test(file.type) && !/\.(png|jpe?g|webp)$/i.test(file.name)) {
     throw new Error('Bitte ein JPG, PNG oder PDF wählen.')
   }
@@ -56,5 +60,5 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
     height = c.height
   }
   bmp.close()
-  return { blob, url: URL.createObjectURL(blob), width, height, name: file.name }
+  return { blob, url: URL.createObjectURL(blob), width, height, name: file.name, paperMmPerPx: pdf?.paperMmPerPx }
 }

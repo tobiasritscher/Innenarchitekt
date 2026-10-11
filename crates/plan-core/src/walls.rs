@@ -136,10 +136,10 @@ pub struct WallPiece {
 /// Split wall footprints at openings. If `walk` is true, only pieces that block
 /// walking are returned (windows block, doors/passages don't).
 pub fn wall_pieces(f: &Floor, fps: &[WallFootprint], walk: bool) -> Vec<WallPiece> {
-    let h = f.ceiling_height_mm as f64;
     let mut out = Vec::new();
     for fp in fps {
         let Some(w) = f.wall(fp.wall) else { continue };
+        let h = w.height(f.ceiling_height_mm) as f64;
         let Some((pa, pb)) = f.wall_points(w) else { continue };
         let l = dist(pa, pb);
         if l < 1e-6 {
@@ -252,6 +252,19 @@ mod tests {
         assert_eq!(p.len(), 7);
         let walk = wall_pieces(&f, &fps, true);
         assert_eq!(walk.len(), 4 + 2);
+    }
+
+    #[test]
+    fn low_wall_pieces() {
+        let mut f = square_floor(4000, 200);
+        f.walls[0].height_mm = Some(1000);
+        let w = f.walls[0].id;
+        f.openings.push(Opening { id: Uuid::new_v4(), wall: w, kind: OpeningKind::Window { sill_mm: 900 }, offset_mm: 1000, width_mm: 1200, height_mm: 1200 });
+        let fps = footprints(&f);
+        let p: Vec<_> = wall_pieces(&f, &fps, false).into_iter().filter(|p| p.wall == w).collect();
+        // left, sill (0..900), right; nothing above 1000
+        assert_eq!(p.len(), 3);
+        assert!(p.iter().all(|p| p.z1 <= 1000.0));
     }
 
     #[test]

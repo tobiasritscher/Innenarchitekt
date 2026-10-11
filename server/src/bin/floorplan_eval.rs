@@ -143,7 +143,7 @@ async fn main() -> anyhow::Result<()> {
             let bytes = std::fs::read(p)?;
             let floor_id = Uuid::new_v4();
             let t0 = Instant::now();
-            let out = floorplan::analyze(AnalyzeInput { image: bytes, corners: None, floor_id }, llm.as_ref(), &|_, _| {}).await?;
+            let out = floorplan::analyze(AnalyzeInput { image: bytes, corners: None, floor_id, paper_mm_per_px: None }, llm.as_ref(), &|_, _| {}).await?;
             let res = floorplan::proposal_floor(&out.proposal, floor_id);
             let rooms = plan_core::rooms::derive_rooms(&res);
             println!(
@@ -193,7 +193,12 @@ async fn main() -> anyhow::Result<()> {
         let corners: Option<[[f64; 2]; 4]> = std::fs::read_to_string(d.join("corners.json")).ok().and_then(|s| serde_json::from_str(&s).ok());
         let floor_id = Uuid::new_v4();
         let t0 = Instant::now();
-        let out = floorplan::analyze(AnalyzeInput { image: bytes.clone(), corners, floor_id }, llm.as_ref(), &|_, _| {}).await;
+        // meta.json (optional): {"paper_mm_per_px": 0.1485} – paper size of one plan.png pixel (PDF render)
+        let paper_mm_per_px = std::fs::read_to_string(d.join("meta.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.get("paper_mm_per_px").and_then(|x| x.as_f64()));
+        let out = floorplan::analyze(AnalyzeInput { image: bytes.clone(), corners, floor_id, paper_mm_per_px }, llm.as_ref(), &|_, _| {}).await;
         let out = match out {
             Ok(o) => o,
             Err(e) => {

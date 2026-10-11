@@ -9,4 +9,8 @@ finish_left: string, finish_right: string,
 /**
  * Full-height glass partition/facade (rendered as glazing, lets light through).
  */
-glazed: boolean, };
+glazed: boolean, 
+/**
+ * Lower than the ceiling (garden wall, railing, half-height partition). None = up to the ceiling.
+ */
+height_mm: number | null, };

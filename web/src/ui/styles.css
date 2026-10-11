@@ -537,6 +537,9 @@ label.check {
   fill: var(--plan-wall-ext);
   stroke: var(--plan-wall-ext);
 }
+.pl-wall.low {
+  fill-opacity: 0.45;
+}
 .pl-wall.glass {
   fill: #9fd3e6;
   fill-opacity: 0.45;

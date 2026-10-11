@@ -66,10 +66,11 @@ export const api = {
     req<{ version: number }>('POST', `/projects/${id}/ops`, { base_version, ops }),
   geocode: (address: string) => req<GeoLocation>('POST', '/geocode', { address }),
 
-  uploadFloorplan: (projectId: string, file: Blob, corners?: [number, number][]) => {
+  uploadFloorplan: (projectId: string, file: Blob, corners?: [number, number][], paperMmPerPx?: number) => {
     const fd = new FormData()
     fd.append('file', file, 'grundriss.png')
     if (corners) fd.append('corners', JSON.stringify(corners))
+    if (paperMmPerPx) fd.append('paper_mm_per_px', String(paperMmPerPx))
     return req<{ job_id: string }>('POST', `/projects/${projectId}/floorplan`, fd)
   },
   getJob: (id: string) => req<Job>('GET', `/jobs/${id}`),

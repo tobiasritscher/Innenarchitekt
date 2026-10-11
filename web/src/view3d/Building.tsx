@@ -46,7 +46,7 @@ function pickProps(h: PickHandlers | undefined, s: NonNullable<Selection>) {
   }
 }
 
-export function Building({ ceilings, pick, highlight = false }: { ceilings: CeilingMode; pick?: PickHandlers; highlight?: boolean }) {
+export function Building({ ceilings, pick, highlight = false, caps = false }: { ceilings: CeilingMode; pick?: PickHandlers; highlight?: boolean; caps?: boolean }) {
   const scene = useSceneMeshes()
   const floor = useFloor()
   const selection = useEditor((s) => (highlight ? s.selection : null))
@@ -89,8 +89,9 @@ export function Building({ ceilings, pick, highlight = false }: { ceilings: Ceil
         return (
           <group key={w.wall}>
             {/* Glass lets the sun through: no shadow casting, drawn after opaque geometry. */}
-            <mesh geometry={geo} material={materials} castShadow={!glazed} receiveShadow={!glazed} renderOrder={glazed ? 1 : 0} {...pickProps(pick, s)} />
-            {glazed && floor && <GlassFrame wall={wall} floor={floor} height={scene.ceiling_height} pp={pickProps(pick, s)} />}
+            <mesh geometry={geo} material={materials} castShadow={!glazed} receiveShadow={!glazed} renderOrder={glazed ? 1 : 0} userData={{ wall: w.wall }} {...pickProps(pick, s)} />
+            {caps && !glazed && <mesh geometry={geo} material={mats.wallCap()} raycast={noRaycast} />}
+            {glazed && floor && <GlassFrame wall={wall} floor={floor} height={(wall.height_mm != null ? Math.min(wall.height_mm / 1000, scene.ceiling_height) : scene.ceiling_height)} pp={pickProps(pick, s)} />}
             {ov && <mesh geometry={geo} material={ov} renderOrder={2} raycast={noRaycast} />}
           </group>
         )

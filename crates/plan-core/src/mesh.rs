@@ -218,8 +218,9 @@ pub fn scene_meshes(f: &Floor) -> SceneMeshes {
     let mut walls = Vec::new();
     for w in &f.walls {
         let mut b = MeshBuilder::default();
+        let wh = w.height(f.ceiling_height_mm) as f64;
         for p in pieces.iter().filter(|p| p.wall == w.id) {
-            let top = if (p.z1 - h).abs() < 0.5 { "top" } else { "edge" };
+            let top = if (p.z1 - wh).abs() < 0.5 { "top" } else { "edge" };
             let bottom = if p.z0 > 0.5 { Some("edge") } else { None };
             extrude(&mut b, &p.poly, p.z0, p.z1, Some(top), bottom, &piece_side_slot(p));
         }
@@ -256,7 +257,7 @@ pub fn scene_meshes(f: &Floor) -> SceneMeshes {
                 // three.js: rotation.y = φ maps local +X to (cos φ, 0, −sin φ). We want (d.x, 0, d.y).
                 rotation_y: (-d[1]).atan2(d[0]) as f32,
                 width: o.width_mm as f32 / 1000.0,
-                height: o.height_mm.min(f.ceiling_height_mm.saturating_sub(o.kind.sill_mm())) as f32 / 1000.0,
+                height: o.height_mm.min(w.height(f.ceiling_height_mm).saturating_sub(o.kind.sill_mm())) as f32 / 1000.0,
                 thickness: w.thickness_mm as f32 / 1000.0,
             })
         })

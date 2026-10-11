@@ -72,6 +72,8 @@ struct FloorplanPayload {
     floor_id: Uuid,
     image_key: String,
     corners: Option<[[f64; 2]; 4]>,
+    #[serde(default)]
+    paper_mm_per_px: Option<f64>,
 }
 
 // ---------- HTTP ----------
@@ -151,12 +153,13 @@ fn sniff_image(b: &[u8]) -> Option<&'static str> {
     }
 }
 
-/// POST /api/projects/{id}/floorplan (multipart: file, corners?)
+/// POST /api/projects/{id}/floorplan (multipart: file, corners?, paper_mm_per_px?)
 pub async fn upload_floorplan(State(st): State<AppState>, Path(project_id): Path<Uuid>, mut mp: Multipart) -> ApiResult<Json<Value>> {
     let project = crate::projects::load(&st.db, project_id).await?;
     let floor_id = project.floors.first().map(|f| f.id).ok_or_else(|| ApiError::unprocessable("Projekt hat kein Stockwerk"))?;
     let mut file: Option<Bytes> = None;
     let mut corners: Option<[[f64; 2]; 4]> = None;
+    let mut paper_mm_per_px: Option<f64> = None;
     while let Some(field) = mp.next_field().await.map_err(|e| ApiError::bad_request(format!("Upload fehlerhaft: {e}")))? {
         match field.name() {
             Some("file") => file = Some(field.bytes().await.map_err(|e| ApiError::bad_request(format!("Upload fehlerhaft: {e}")))?),
@@ -171,6 +174,10 @@ pub async fn upload_floorplan(State(st): State<AppState>, Path(project_id): Path
                     corners = Some(c);
                 }
             }
+            Some("paper_mm_per_px") => {
+                let t = field.text().await.map_err(|e| ApiError::bad_request(format!("Upload fehlerhaft: {e}")))?;
+                paper_mm_per_px = t.trim().parse::<f64>().ok().filter(|v| v.is_finite() && *v > 0.0 && *v < 10.0);
+            }
             _ => {}
         }
     }
@@ -179,7 +186,7 @@ pub async fn upload_floorplan(State(st): State<AppState>, Path(project_id): Path
     let job_id = Uuid::new_v4();
     let image_key = format!("floorplans/{job_id}/original.{ext}");
     st.store.put(&ObjPath::from(image_key.as_str()), PutPayload::from(file)).await?;
-    let payload = FloorplanPayload { project_id, floor_id, image_key, corners };
+    let payload = FloorplanPayload { project_id, floor_id, image_key, corners, paper_mm_per_px };
     sqlx::query("INSERT INTO jobs (id, kind, status, progress, message, payload) VALUES ($1, $2, 'queued', 0, 'In Warteschlange', $3)")
         .bind(job_id)
         .bind(KIND_FLOORPLAN)
@@ -334,7 +341,7 @@ async fn run_floorplan(st: &AppState, job_id: Uuid, payload: Value) -> Result<Va
     let jobs_tx = st.jobs_tx.clone();
     let llm = st.llm.clone();
     let handle = tokio::runtime::Handle::current();
-    let input = AnalyzeInput { image, corners: p.corners, floor_id: p.floor_id };
+    let input = AnalyzeInput { image, corners: p.corners, floor_id: p.floor_id, paper_mm_per_px: p.paper_mm_per_px };
     // Run on a blocking thread: CPU-heavy CV doesn't stall the runtime, the future need not be
     // `Send`, and a panic (e.g. unimplemented stage) becomes a JoinError instead of killing us.
     let task = tokio::task::spawn_blocking(move || {

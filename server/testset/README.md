@@ -27,6 +27,7 @@ server/testset/<fall>/
   plan.png | plan.jpg     Grundriss (wie ihn der Nutzer hochladen würde)
   truth.json              von Hand korrigierte Wahrheit
   corners.json            optional: [[x,y],[x,y],[x,y],[x,y]] Perspektiv-Ecken (TL, TR, BR, BL) in Bildpixeln
+  meta.json               optional: {"paper_mm_per_px": 0.1485} – Papiergrösse eines Pixels (Plan aus PDF)
 ```
 
 `truth.json` ist ein `plan_core::Floor` (gleiches JSON wie im Projekt-Snapshot, alle Längen in mm), alternativ ein

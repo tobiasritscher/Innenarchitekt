@@ -82,6 +82,9 @@ pub struct Wall {
     /// Full-height glass partition/facade (rendered as glazing, lets light through).
     #[serde(default)]
     pub glazed: bool,
+    /// Lower than the ceiling (garden wall, railing, half-height partition). None = up to the ceiling.
+    #[serde(default)]
+    pub height_mm: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -276,7 +279,12 @@ impl Wall {
             finish_left: DEFAULT_WALL_FINISH.into(),
             finish_right: DEFAULT_WALL_FINISH.into(),
             glazed: false,
+            height_mm: None,
         }
+    }
+    /// Effective height (mm): own height, capped at the ceiling.
+    pub fn height(&self, ceiling_mm: u32) -> u32 {
+        self.height_mm.map_or(ceiling_mm, |h| h.min(ceiling_mm))
     }
     pub fn other(&self, node: Id) -> Id {
         if self.a == node {
@@ -301,6 +309,7 @@ mod tests {
         }))
         .unwrap();
         assert!(!w.glazed);
+        assert_eq!(w.height(2500), 2500);
         let r: RoomMeta = serde_json::from_value(serde_json::json!({
             "id": id, "anchor": [0, 0], "name": "x", "floor_material": "wood:oak", "ceiling_material": "paint:white"
         }))

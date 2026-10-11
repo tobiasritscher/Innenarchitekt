@@ -66,7 +66,7 @@ export function AnalyzeStep({
     }
 
     api
-      .uploadFloorplan(projectId, image.blob, corners ?? undefined)
+      .uploadFloorplan(projectId, image.blob, corners ?? undefined, image.paperMmPerPx)
       .then(({ job_id }) => {
         if (cancelled) return
         setPhase({ t: 'job', job: { id: job_id, kind: 'floorplan', status: 'queued', progress: 0, message: 'In der Warteschlange …', result: null, error: null } })

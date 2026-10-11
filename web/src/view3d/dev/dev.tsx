@@ -77,6 +77,7 @@ function buildProject() {
     finish_left: l,
     finish_right: r,
     glazed: false,
+    height_mm: null,
   })
   // exterior clockwise on screen (a→b→c…): right side = inside
   const north1 = W(N.a, N.b, 300, true, 'stone:concrete')
@@ -86,9 +87,10 @@ function buildProject() {
   const south1 = W(N.e, N.f, 300, true, 'stone:concrete')
   const south2 = W(N.f, N.g, 300, true, 'stone:concrete')
   const west = W(N.g, N.a, 300, true, 'stone:concrete', 'paint:sage')
-  const midV1 = W(N.b, N.h, 120, false)
+  const midV1 = { ...W(N.b, N.h, 120, false), glazed: true } // glass partition with a door
+
   const midV2 = W(N.h, N.f, 120, false)
-  const midH = W(N.h, N.d, 120, false, 'paint:greige', 'tile:white')
+  const midH = { ...W(N.h, N.d, 120, false, 'paint:greige', 'tile:white'), height_mm: 1100 } // half-height wall
   const walls = [north1, north2, east1, east2, south1, south2, west, midV1, midV2, midH]
   const win = (wall: { id: string }, offset: number, w: number, h = 1500, sill = 800) => ({ id: id(), wall: wall.id, kind: { type: 'Window', sill_mm: sill }, offset_mm: offset, width_mm: w, height_mm: h })
   const door = (wall: { id: string }, offset: number, hinge: 'Start' | 'End', swing: 'Left' | 'Right', w = 900) => ({ id: id(), wall: wall.id, kind: { type: 'Door', hinge, swing }, offset_mm: offset, width_mm: w, height_mm: 2050 })

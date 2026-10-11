@@ -12,6 +12,7 @@ import {
   SRGBColorSpace,
   Vector3,
   type Material,
+  BackSide,
 } from 'three'
 import { resolveMaterial, type MaterialDef } from '../core/materials'
 
@@ -322,6 +323,13 @@ export const mats = {
         depthWrite: false,
         side: DoubleSide,
       })
+      m.clippingPlanes = wallClipPlanes
+      return m
+    }),
+  /** Seen through the cut of clipped walls: back faces in the wall-top colour look like a solid cap. */
+  wallCap: () =>
+    special('wall-cap', () => {
+      const m = new MeshStandardMaterial({ color: '#3b3d40', roughness: 1, side: BackSide })
       m.clippingPlanes = wallClipPlanes
       return m
     }),

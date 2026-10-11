@@ -202,7 +202,14 @@ function WallProps({ src, wall, onDelete }: { src: PlanSource; wall: Wall; onDel
         Fixes Ende
         <Seg value={fixedA ? 'a' : 'b'} options={[['a', 'Anfang A'], ['b', 'Ende B']]} onChange={(v) => setFixedA(v === 'a')} />
       </div>
-      <LengthField label="Stärke" valueMm={wall.thickness_mm} onCommit={(mm) => put({ ...wall, thickness_mm: Math.max(20, mm) }, 'Wandstärke ändern')} />
+      <div className="row">
+        <LengthField label="Stärke" valueMm={wall.thickness_mm} onCommit={(mm) => put({ ...wall, thickness_mm: Math.max(20, mm) }, 'Wandstärke ändern')} />
+        <LengthField
+          label="Höhe"
+          valueMm={Math.min(wall.height_mm ?? f.ceiling_height_mm, f.ceiling_height_mm)}
+          onCommit={(mm) => put({ ...wall, height_mm: mm >= f.ceiling_height_mm ? null : Math.max(50, mm) }, 'Wandhöhe ändern')}
+        />
+      </div>
       <div className="field">
         Art
         <Seg value={wall.kind} options={[['Interior', 'Innen'], ['Exterior', 'Aussen']]} onChange={(k) => put({ ...wall, kind: k }, 'Wandart ändern')} />
@@ -213,7 +220,7 @@ function WallProps({ src, wall, onDelete }: { src: PlanSource; wall: Wall; onDel
       </div>
       <MaterialPicker label="Oberfläche links" value={wall.finish_left} onChange={(m) => put({ ...wall, finish_left: m }, 'Wandmaterial links')} />
       <MaterialPicker label="Oberfläche rechts" value={wall.finish_right} onChange={(m) => put({ ...wall, finish_right: m }, 'Wandmaterial rechts')} />
-      <p className="muted small">Links/rechts = in Zeichenrichtung von A nach B gesehen. {openings.length > 0 && `${openings.length} Öffnung(en).`}</p>
+      <p className="muted small">Höhe bis zur Decke = raumhoch; tiefer z. B. für Gartenmauer oder Brüstung. Links/rechts = in Zeichenrichtung von A nach B gesehen. {openings.length > 0 && `${openings.length} Öffnung(en).`}</p>
       <div className="row">
         <button
           onClick={() => {
@@ -303,7 +310,16 @@ function FurnitureProps({ src, it, onDelete }: { src: PlanSource; it: FurnitureI
   const dims = (i: number, v: number) => {
     const d = [...it.dims_mm] as [number, number, number]
     d[i] = Math.max(1, Math.round(v))
-    put({ ...it, dims_mm: d }, 'Möbelmasse ändern')
+    // Attached lights (local offsets) scale along with the furniture, e.g. the bulb of a floor lamp.
+    const k = d[i] / Math.max(1, it.dims_mm[i])
+    const lightOps: Op[] = src.project.lights
+      .filter((l) => l.attached_to === it.id)
+      .map((l) => {
+        const pos = [...l.pos_mm] as [number, number, number]
+        pos[i] = Math.round(pos[i] * k)
+        return { op: 'PutLight', light: { ...l, pos_mm: pos } }
+      })
+    src.commit([{ op: 'PutFurniture', item: { ...it, dims_mm: d } }, ...lightOps], 'Möbelmasse ändern')
   }
   const lights = src.project.lights.filter((l) => l.attached_to === it.id)
   return (

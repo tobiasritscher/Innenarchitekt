@@ -64,6 +64,8 @@ pub struct Prepared {
     /// Without corners: rectified px = (source px − src_offset) · src_scale.
     pub src_offset: [f64; 2],
     pub src_scale: f64,
+    /// Prepared pixels per source pixel (resolution only; survives rotation, approximate for perspective).
+    pub px_per_src: f64,
 }
 
 pub fn encode_png(img: &DynamicImage) -> anyhow::Result<Vec<u8>> {
@@ -75,17 +77,25 @@ pub fn encode_png(img: &DynamicImage) -> anyhow::Result<Vec<u8>> {
 pub fn preprocess(bytes: &[u8], corners: Option<[[f64; 2]; 4]>) -> anyhow::Result<Prepared> {
     let img = image::load_from_memory(bytes).context("Bild konnte nicht gelesen werden (PNG oder JPEG erwartet)")?;
     let rgb = flatten_alpha(&img);
-    let (rgb, src_offset, src_scale) = match corners {
-        Some(c) => (rectify(&rgb, c)?, [0.0, 0.0], f64::NAN),
+    let (rgb, src_offset, src_scale, px_per_src) = match corners {
+        Some(c) => {
+            let d = |a: [f64; 2], b: [f64; 2]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+            let w = d(c[0], c[1]).max(d(c[3], c[2]));
+            let r = rectify(&rgb, c)?;
+            let k = r.width() as f64 / w.max(1.0);
+            (r, [0.0, 0.0], f64::NAN, k)
+        }
         None => {
             let (t, off) = trim_borders(&rgb);
             let w0 = t.width() as f64;
             let r = resize_limits(t);
             let k = r.width() as f64 / w0;
-            (r, off, k)
+            (r, off, k, k)
         }
     };
-    from_rgb(rgb, src_offset, src_scale)
+    let mut p = from_rgb(rgb, src_offset, src_scale)?;
+    p.px_per_src = px_per_src;
+    Ok(p)
 }
 
 pub fn from_rgb(rgb: RgbImage, src_offset: [f64; 2], src_scale: f64) -> anyhow::Result<Prepared> {
@@ -94,7 +104,8 @@ pub fn from_rgb(rgb: RgbImage, src_offset: [f64; 2], src_scale: f64) -> anyhow::
     let ink = binarize(&gray);
     let light = Mask::from_gray(&gray, 215);
     let png = encode_png(&DynamicImage::ImageRgb8(rgb.clone()))?;
-    Ok(Prepared { rgb, gray, ink, light, png, src_offset, src_scale })
+    let px_per_src = if src_scale.is_finite() { src_scale } else { 1.0 };
+    Ok(Prepared { rgb, gray, ink, light, png, src_offset, src_scale, px_per_src })
 }
 
 /// Rotate the rectified image by `deg` (clockwise on screen) about its centre, white fill.
@@ -106,7 +117,9 @@ pub fn rotated(p: &Prepared, deg: f64) -> anyhow::Result<Prepared> {
         Interpolation::Bilinear,
         Rgb([255, 255, 255]),
     );
-    from_rgb(img, [0.0, 0.0], f64::NAN)
+    let mut out = from_rgb(img, [0.0, 0.0], f64::NAN)?;
+    out.px_per_src = p.px_per_src;
+    Ok(out)
 }
 
 /// Transparent pixels → white.

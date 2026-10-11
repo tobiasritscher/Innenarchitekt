@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::geom::*;
 use crate::model::*;
+use crate::rooms::derive_rooms;
 use crate::walls::{footprints, wall_pieces, WallFootprint};
 
 /// A wall face (inner/outer side line) with outward normal (pointing away from the wall body).
@@ -38,8 +39,10 @@ pub struct SnapResult {
 }
 
 /// Snap a furniture footprint with its back against the nearest wall face within `threshold_mm`.
+/// Once the plan has closed rooms, only faces looking into a room are used (never the outside of the flat).
 pub fn snap_to_wall(f: &Floor, x: f64, y: f64, dims: [u32; 3], rot_deg: f64, threshold_mm: f64) -> Option<SnapResult> {
     let fps = footprints(f);
+    let rooms: Vec<Vec<P>> = derive_rooms(f).into_iter().map(|r| r.polygon).collect();
     let c = [x, y];
     let depth = dims[1] as f64;
     let mut best: Option<(f64, SnapResult)> = None;
@@ -47,6 +50,9 @@ pub fn snap_to_wall(f: &Floor, x: f64, y: f64, dims: [u32; 3], rot_deg: f64, thr
         let (t, q, _) = closest_on_segment(c, face.a, face.b);
         if t <= 0.0 || t >= 1.0 {
             continue;
+        }
+        if !rooms.is_empty() && !rooms.iter().any(|r| point_in_polygon(add(q, mul(face.n, 10.0)), r)) {
+            continue; // outer face
         }
         // signed distance of the centre in front of the face
         let s = dot(sub(c, q), face.n);
@@ -230,6 +236,13 @@ mod tests {
         let s = snap_to_wall(&f, 2000.0, 500.0, [1000, 600, 800], 0.0, 250.0).unwrap();
         assert_eq!(s.y_mm, 400);
         assert!((s.rotation_deg - 0.0).abs() < 1e-3 || (s.rotation_deg - 360.0).abs() < 1e-3, "{s:?}");
+    }
+
+    #[test]
+    fn never_snaps_to_outer_face() {
+        let f = room();
+        // just outside the north wall (outer face at y=-100), item would fit outside
+        assert!(snap_to_wall(&f, 2000.0, -500.0, [1000, 600, 800], 180.0, 250.0).is_none());
     }
 
     #[test]

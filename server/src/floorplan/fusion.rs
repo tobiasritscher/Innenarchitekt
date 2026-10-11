@@ -226,8 +226,48 @@ fn refine_dim(d: &SemDim, walls: &[WSeg]) -> (P, P) {
     (a, b)
 }
 
+/// "1:100", "M 1 : 50", "Massstab 1:100 (A4)" → 100.
+pub fn parse_scale_ratio(text: &str) -> Option<f64> {
+    let i = text.find(':')?;
+    let before = text[..i].trim_end();
+    if !before.ends_with('1') || before[..before.len() - 1].ends_with(|c: char| c.is_ascii_digit()) {
+        return None;
+    }
+    let digits: String = text[i + 1..].trim_start().chars().take_while(|c| c.is_ascii_digit() || *c == '\'' || *c == '’').filter(|c| c.is_ascii_digit()).collect();
+    let n: f64 = digits.parse().ok()?;
+    (5.0..=2000.0).contains(&n).then_some(n)
+}
+
+/// Like [`estimate_from_plan`], but if the plan states its scale (e.g. 1:100) and the paper size of a pixel
+/// is known (PDF upload), that printed scale is exact and wins – unless dimensions or the rough estimate
+/// clearly contradict it (PDF not to scale).
+pub fn estimate_scale(sem: Option<&Semantics>, walls: &[WSeg], door_widths_px: &[f64], paper_mm_per_px: Option<f64>) -> ScaleEstimate {
+    let mut base = estimate_from_plan(sem, walls, door_widths_px);
+    let ratio = sem.and_then(|s| s.scale_text.as_deref()).and_then(parse_scale_ratio);
+    let (Some(paper), Some(n)) = (paper_mm_per_px.filter(|p| p.is_finite() && *p > 0.0), ratio) else { return base };
+    let printed = paper * n;
+    base.notes.retain(|t| !t.contains("ohne Bildauflösung"));
+    let dev = (base.mm_per_px / printed - 1.0).abs();
+    if base.from_dims {
+        if dev <= 0.06 {
+            base.mm_per_px = printed;
+            base.notes.push(format!("Massstab 1:{n} aus dem PDF übernommen, durch die Masszahlen bestätigt."));
+        } else {
+            base.notes.push(format!("Massstab 1:{n} aus dem PDF passt nicht zu den Masszahlen ({:.0} % Abweichung) – Masszahlen verwendet.", dev * 100.0));
+        }
+        return base;
+    }
+    if dev > 0.35 {
+        base.notes.push(format!("Massstab 1:{n} aus dem PDF weicht stark von der Schätzung ab – PDF vermutlich nicht massstäblich, Schätzung verwendet."));
+        return base;
+    }
+    base.notes.retain(|t| !t.starts_with("Keine Masszahlen erkannt") && !t.starts_with("Kein Massstab"));
+    base.notes.push(format!("Massstab 1:{n} aus der PDF-Seitengrösse übernommen – stimmt, wenn das PDF massstäblich ist. Referenzmass kurz prüfen."));
+    ScaleEstimate { mm_per_px: printed, reference: None, notes: base.notes, from_dims: true }
+}
+
 /// Estimate mm/px from dimensions (median, outliers > 8 % flagged), else from wall thickness / door gaps.
-pub fn estimate_scale(sem: Option<&Semantics>, walls: &[WSeg], door_widths_px: &[f64]) -> ScaleEstimate {
+pub fn estimate_from_plan(sem: Option<&Semantics>, walls: &[WSeg], door_widths_px: &[f64]) -> ScaleEstimate {
     let mut notes = Vec::new();
     if let Some(sem) = sem {
         let dims: Vec<(P, P, f64, String)> = sem
@@ -321,6 +361,32 @@ mod tests {
     }
 
     #[test]
+    fn parses_scale_ratio() {
+        assert_eq!(parse_scale_ratio("1:100"), Some(100.0));
+        assert_eq!(parse_scale_ratio("Massstab 1 : 50 (A4)"), Some(50.0));
+        assert_eq!(parse_scale_ratio("M 1:1'000"), Some(1000.0));
+        assert_eq!(parse_scale_ratio("11:100"), None);
+        assert_eq!(parse_scale_ratio("100"), None);
+    }
+
+    #[test]
+    fn printed_scale_from_pdf() {
+        let walls: Vec<WSeg> = vec![];
+        let sem = Semantics { scale_text: Some("1:100 (A4)".into()), ..Default::default() };
+        // rough estimate from two doors ≈ 16.3 mm/px (10 % off) → printed 0.1485 mm × 100 wins
+        let doors = [900.0 / 16.3, 900.0 / 16.3];
+        let s = estimate_scale(Some(&sem), &walls, &doors, Some(0.1485));
+        assert!((s.mm_per_px - 14.85).abs() < 1e-9, "{}", s.mm_per_px);
+        assert!(s.from_dims);
+        // without paper size: unchanged behaviour
+        let s = estimate_scale(Some(&sem), &walls, &doors, None);
+        assert!(!s.from_dims);
+        // A3 printed as A4 (factor 1.41) contradicts the estimate → ignored
+        let s = estimate_scale(Some(&sem), &walls, &doors, Some(0.1485 / 1.6));
+        assert!(!s.from_dims);
+    }
+
+    #[test]
     fn fusion_snaps_and_flags() {
         let cv = vec![
             seg([100.0, 100.0], [900.0, 100.0], 20.0),
@@ -382,7 +448,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let s = estimate_scale(Some(&sem), &walls, &[]);
+        let s = estimate_scale(Some(&sem), &walls, &[], None);
         assert!(s.from_dims);
         assert!((s.mm_per_px - 10.0).abs() < 0.3, "{}", s.mm_per_px);
         assert!(s.notes.iter().any(|n| n.contains("weicht")));
@@ -396,7 +462,7 @@ mod tests {
             WSeg { a: [0.0, 0.0], b: [0.0, 1000.0], t: 30.0, conf: 0.6, exterior: None },
             WSeg { a: [500.0, 0.0], b: [500.0, 1000.0], t: 12.0, conf: 0.6, exterior: None },
         ];
-        let s = estimate_scale(None, &walls, &[]);
+        let s = estimate_scale(None, &walls, &[], None);
         assert!(!s.from_dims);
         assert!((s.mm_per_px - 10.0).abs() < 0.5, "{}", s.mm_per_px);
     }

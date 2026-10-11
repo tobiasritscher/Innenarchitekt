@@ -16,7 +16,9 @@ import { useBounds, type Bounds } from './bounds'
 import { RendererSetup, fitCamera } from './common'
 import { FurnitureLayer, PrimitiveModel, furnitureRotationY } from './Furniture'
 import { LightMarkers } from './Lights'
-import { setWallCut } from './materials3d'
+import { setWallCut, wallClip } from './materials3d'
+import type { DerivedRoom } from '../core/generated/DerivedRoom'
+import { pointInPolygon } from '../editor2d/geom'
 import { useView3D } from './store'
 
 const SNAP_MM = 150
@@ -102,6 +104,39 @@ function PreviewContent({ cutWalls }: { cutWalls: boolean }) {
     [gl, camera, raycaster],
   )
 
+  const scene = useThree((s) => s.scene)
+  /** Plan point (mm) for furniture under the cursor. Pointing at a wall (in front of the floor behind it)
+   *  yields a point just in front of the wall on its room side, so the item never lands outside. */
+  const floorPoint = useCallback(
+    (clientX: number, clientY: number, depthMm: number): [number, number] | null => {
+      const ground = groundHit(clientX, clientY, 0)
+      const wallHit = raycaster
+        .intersectObjects(scene.children, true)
+        .find((h) => typeof h.object.userData.wall === 'string' && wallClip.distanceToPoint(h.point) >= 0)
+      const st = useProject.getState()
+      const f = st.project?.floors[0]
+      if (!wallHit || !f || !st.engine || (ground && ground.distanceTo(raycaster.ray.origin) < wallHit.distance)) {
+        return ground ? [ground.x * 1000, ground.z * 1000] : null
+      }
+      const wall = f.walls.find((w) => w.id === wallHit.object.userData.wall)
+      const a = wall && f.nodes.find((n) => n.id === wall.a)
+      const b = wall && f.nodes.find((n) => n.id === wall.b)
+      if (!wall || !a || !b) return ground ? [ground.x * 1000, ground.z * 1000] : null
+      const len = Math.hypot(b.x_mm - a.x_mm, b.y_mm - a.y_mm) || 1
+      const n = [-(b.y_mm - a.y_mm) / len, (b.x_mm - a.x_mm) / len]
+      const p = [wallHit.point.x * 1000, wallHit.point.z * 1000]
+      const off = wall.thickness_mm / 2 + depthMm / 2 + 20
+      const cands = [1, -1].map((sg) => [p[0] + sg * n[0] * off, p[1] + sg * n[1] * off] as [number, number])
+      const rooms = st.engine.rooms(f.id) as DerivedRoom[]
+      const inRoom = (q: [number, number]) => rooms.some((r) => pointInPolygon(q, r.polygon as [number, number][]))
+      const cam = [camera.position.x * 1000 - p[0], camera.position.z * 1000 - p[1]]
+      const camSide = cam[0] * n[0] + cam[1] * n[1] >= 0 ? 0 : 1
+      const order = [cands[camSide], cands[1 - camSide]]
+      return order.find(inRoom) ?? order[0]
+    },
+    [groundHit, raycaster, scene, camera],
+  )
+
   const pick: PickHandlers = useMemo(
     () => ({
       onClick: (e, s) => {
@@ -129,7 +164,7 @@ function PreviewContent({ cutWalls }: { cutWalls: boolean }) {
       const hit = groundHit(ne.clientX, ne.clientY, 0)
       if (!hit) return
       useEditor.getState().select({ kind: 'furniture', id: item.id })
-      const off = [item.pos_mm[0] - hit.x * 1000, item.pos_mm[1] - hit.z * 1000]
+      const grab = [item.pos_mm[0] - hit.x * 1000, item.pos_mm[1] - hit.z * 1000]
       const sx = ne.clientX
       const sy = ne.clientY
       let moved = false
@@ -137,10 +172,13 @@ function PreviewContent({ cutWalls }: { cutWalls: boolean }) {
       const move = (ev: PointerEvent) => {
         if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return
         moved = true
-        const h = groundHit(ev.clientX, ev.clientY, 0)
+        const h = floorPoint(ev.clientX, ev.clientY, item.dims_mm[1])
         if (!h) return
-        let x = h.x * 1000 + off[0]
-        let y = h.z * 1000 + off[1]
+        // keep the grab offset only while over the floor; over a wall the point is already placed
+        const g = groundHit(ev.clientX, ev.clientY, 0)
+        const onFloor = !!g && Math.hypot(g.x * 1000 - h[0], g.z * 1000 - h[1]) < 1
+        let x = h[0] + (onFloor ? grab[0] : 0)
+        let y = h[1] + (onFloor ? grab[1] : 0)
         let rot = item.rotation_deg
         const st = useProject.getState()
         if (!ev.altKey && useEditor.getState().snapping && st.engine) {
@@ -168,7 +206,7 @@ function PreviewContent({ cutWalls }: { cutWalls: boolean }) {
       window.addEventListener('pointerup', up)
       window.addEventListener('pointercancel', up)
     },
-    [groundHit, controls],
+    [groundHit, floorPoint, controls],
   )
 
   const furniturePick = useMemo(() => ({ ...pick, onDown }), [pick, onDown])
@@ -176,10 +214,10 @@ function PreviewContent({ cutWalls }: { cutWalls: boolean }) {
   return (
     <>
       <PreviewLights bounds={bounds} />
-      <Building ceilings="none" pick={pick} highlight />
+      <Building ceilings="none" pick={pick} highlight caps={cutWalls} />
       <FurnitureLayer pick={furniturePick} highlight />
       <LightMarkers pick={pick} />
-      {placing && <Placement assetId={placing} groundHit={groundHit} />}
+      {placing && <Placement assetId={placing} floorPoint={floorPoint} />}
       <OrbitControls makeDefault enableDamping={false} maxPolarAngle={Math.PI * 0.49} minDistance={1} maxDistance={80} />
       <FitCamera bounds={bounds} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[bounds.center.x, -0.01, bounds.center.z]} receiveShadow raycast={() => {}}>
@@ -241,7 +279,7 @@ function FitCamera({ bounds }: { bounds: Bounds }) {
 
 const ghostMat = new MeshStandardMaterial({ color: '#1f6feb', transparent: true, opacity: 0.45, depthWrite: false })
 
-function Placement({ assetId, groundHit }: { assetId: string; groundHit: (x: number, y: number) => Vector3 | null }) {
+function Placement({ assetId, floorPoint }: { assetId: string; floorPoint: (x: number, y: number, depthMm: number) => [number, number] | null }) {
   const asset = useAssets((s) => s.assets.find((a) => a.id === assetId))
   const gl = useThree((s) => s.gl)
   const invalidate = useThree((s) => s.invalidate)
@@ -253,11 +291,11 @@ function Placement({ assetId, groundHit }: { assetId: string; groundHit: (x: num
     if (!asset) return
     const el = gl.domElement
     const update = (cx: number, cy: number, altKey: boolean) => {
-      const h = groundHit(cx, cy)
+      const h = floorPoint(cx, cy, asset.dims_mm[1])
       if (!h) return
       lastRef.current = { x: cx, y: cy }
-      let x = h.x * 1000
-      let y = h.z * 1000
+      let x = h[0]
+      let y = h[1]
       let rot = rotRef.current
       const st = useProject.getState()
       if (!altKey && useEditor.getState().snapping && st.engine) {
@@ -321,7 +359,7 @@ function Placement({ assetId, groundHit }: { assetId: string; groundHit: (x: num
       window.removeEventListener('keydown', onKey)
       useView3D.getState().setGhost(null)
     }
-  }, [asset, gl, groundHit, invalidate])
+  }, [asset, gl, floorPoint, invalidate])
 
   useLayoutEffect(() => invalidate(), [ghost, invalidate])
   if (!asset || !ghost) return null
