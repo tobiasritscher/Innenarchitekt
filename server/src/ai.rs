@@ -353,8 +353,9 @@ impl Tr<'_> {
         let id = self.id(a, "wall")?;
         self.f().wall(id).cloned().ok_or_else(|| "Wand nicht gefunden".into())
     }
+    /// Human-readable name: walls by their adjacent rooms, others by name.
     fn label(&self, id: Uuid) -> String {
-        self.cx.ids.s(id)
+        human_label(&self.p, self.cx, id)
     }
     fn material(&self, m: &str) -> R<String> {
         let ok = self.cx.materials.iter().any(|(id, _)| id == m) || (m.len() == 7 && m.starts_with('#') && m[1..].chars().all(|c| c.is_ascii_hexdigit()));
@@ -482,16 +483,17 @@ impl Tr<'_> {
             }
             "delete_wall" => {
                 let w = self.wall(a)?;
+                let name = self.label(w.id);
                 let ops = commands::delete_wall(&self.p, fid, w.id).map_err(|e| e.to_string())?;
                 self.push(ops)?;
-                Ok(format!("Wand {} löschen", self.label(w.id)))
+                Ok(format!("Wand {name} löschen"))
             }
             "move_node" => {
                 let id = self.id(a, "node")?;
                 self.f().node(id).ok_or("Knoten nicht gefunden")?;
                 let (x, y) = (num(a, "x_mm").ok_or("«x_mm» fehlt")?, num(a, "y_mm").ok_or("«y_mm» fehlt")?);
                 self.push(vec![Op::PutNode { floor: fid, node: Node { id, x_mm: x.round() as i32, y_mm: y.round() as i32 } }])?;
-                Ok(format!("Ecke {} verschieben", self.label(id)))
+                Ok("Ecke verschieben".to_string())
             }
             "add_opening" | "set_opening" => {
                 let existing = if ty == "set_opening" {
@@ -559,18 +561,18 @@ impl Tr<'_> {
                     OpeningKind::Door { .. } => "Tür",
                     OpeningKind::Passage => "Durchgang",
                 };
-                let id = o.id;
                 self.push(vec![Op::PutOpening { floor: fid, opening: o }])?;
                 Ok(if existing.is_some() {
-                    format!("{name} {} anpassen ({} breit)", self.label(id), fmt_m(width))
+                    format!("{name} anpassen ({} breit)", fmt_m(width))
                 } else {
                     format!("{name} {} breit in Wand {}", fmt_m(width), self.label(wall.id))
                 })
             }
             "delete_opening" => {
                 let id = self.id(a, "opening")?;
+                let name = self.label(id);
                 self.push(vec![Op::DeleteOpening { floor: fid, id }])?;
-                Ok(format!("Öffnung {} löschen", self.label(id)))
+                Ok(format!("{name} löschen"))
             }
             "set_room" => {
                 let r = self.cx.room(txt(a, "room").ok_or("«room» fehlt")?).ok_or("Raum nicht gefunden")?.clone();
@@ -776,8 +778,9 @@ impl Tr<'_> {
             }
             "delete_light" => {
                 let id = self.id(a, "light")?;
+                let name = self.label(id);
                 self.push(vec![Op::DeleteLight { id }])?;
-                Ok(format!("Leuchte {} löschen", self.label(id)))
+                Ok(format!("{name} löschen"))
             }
             "set_ceiling_height" => {
                 let h = num(a, "ceiling_height_mm").or(num(a, "height_mm")).ok_or("«ceiling_height_mm» fehlt")?;
@@ -788,6 +791,35 @@ impl Tr<'_> {
             other => Err(format!("unbekannte Aktion «{other}»")),
         }
     }
+}
+
+fn human_label(p: &Project, cx: &Ctx, id: Uuid) -> String {
+    let f = &p.floors[0];
+    let rname = |i: usize| room_name(f, &cx.rooms[i]).unwrap_or_else(|| "Raum".into());
+    if let Some(w) = f.wall(id) {
+        let l = side_room(f, &cx.rooms, w, 1.0).map(rname);
+        let r = side_room(f, &cx.rooms, w, -1.0).map(rname);
+        return match (l, r) {
+            (Some(a), Some(b)) if a != b => format!("{a} / {b}"),
+            (Some(a), _) | (_, Some(a)) => format!("{a} (aussen)"),
+            _ => "freistehend".into(),
+        };
+    }
+    if let Some(o) = f.openings.iter().find(|o| o.id == id) {
+        let k = match o.kind {
+            OpeningKind::Door { .. } => "Tür",
+            OpeningKind::Window { .. } => "Fenster",
+            OpeningKind::Passage => "Durchgang",
+        };
+        return format!("{k} {}", human_label(p, cx, o.wall));
+    }
+    if let Some(it) = p.furniture.iter().find(|x| x.id == id) {
+        return it.name.clone();
+    }
+    if let Some(l) = p.lights.iter().find(|x| x.id == id) {
+        return l.name.clone();
+    }
+    cx.ids.s(id)
 }
 
 /// Result of a model response, translated.
@@ -814,7 +846,8 @@ fn translate(p: &Project, cx: &Ctx, v: &Value) -> Proposal {
     for r in v.get("refs").and_then(|x| x.as_array()).cloned().unwrap_or_default() {
         let Some(s) = r.as_str() else { continue };
         if let Some(room) = cx.room(s) {
-            out.refs.push(json!({"kind": "room", "id": room.meta.map(|m| m.to_string()).unwrap_or_else(|| room.key.clone())}));
+            let label = room_name(f, room).unwrap_or_else(|| "Raum".into());
+            out.refs.push(json!({"kind": "room", "id": room.meta.map(|m| m.to_string()).unwrap_or_else(|| room.key.clone()), "label": label}));
             continue;
         }
         let Some(id) = cx.ids.get(s) else { continue };
@@ -831,7 +864,7 @@ fn translate(p: &Project, cx: &Ctx, v: &Value) -> Proposal {
         } else {
             continue;
         };
-        out.refs.push(json!({"kind": kind, "id": id}));
+        out.refs.push(json!({"kind": kind, "id": id, "label": human_label(p, cx, id)}));
     }
     out
 }

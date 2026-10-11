@@ -112,5 +112,5 @@ export type AiResponse = {
   ops: Op[]
   changes: string[]
   warnings: string[]
-  refs: { kind: 'node' | 'wall' | 'opening' | 'room' | 'furniture' | 'light'; id: string }[]
+  refs: { kind: 'node' | 'wall' | 'opening' | 'room' | 'furniture' | 'light'; id: string; label?: string }[]
 }

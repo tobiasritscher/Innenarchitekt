@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    proxy: { '/api': { target: 'http://127.0.0.1:8090', changeOrigin: false } },
+    proxy: { '/api': { target: process.env.IA_API ?? 'http://127.0.0.1:8090', changeOrigin: false } },
   },
   build: { target: 'es2022', chunkSizeWarningLimit: 4000 },
 })

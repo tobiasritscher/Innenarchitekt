@@ -54,8 +54,14 @@ export function AiPanel() {
     api.config().then((c) => setEnabled(c.llm_enabled), () => setEnabled(false))
   }, [])
   // leaving the tab discards an open preview
-  useEffect(() => () => void discardPreview(msgsRef.current), [])
-  useEffect(() => endRef.current?.scrollIntoView({ block: 'end' }), [msgs, busy])
+  useEffect(() => {
+    return () => {
+      discardPreview(msgsRef.current)
+    }
+  }, [])
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end' })
+  }, [msgs, busy])
 
   const send = async (q = text) => {
     if (!project || busy || (!q.trim() && photos.length === 0)) return
@@ -145,8 +151,8 @@ export function AiPanel() {
               {m.res.refs.length > 0 && (
                 <div className="ai-refs">
                   {m.res.refs.map((r, k) => (
-                    <button key={k} className="ai-ref" onClick={() => useEditor.getState().select(r as NonNullable<Selection>)}>
-                      {REF_NAMES[r.kind] ?? r.kind} {k + 1}
+                    <button key={k} className="ai-ref" onClick={() => useEditor.getState().select({ kind: r.kind, id: r.id } as NonNullable<Selection>)}>
+                      {REF_NAMES[r.kind] ?? r.kind}: {r.label ?? k + 1}
                     </button>
                   ))}
                 </div>
