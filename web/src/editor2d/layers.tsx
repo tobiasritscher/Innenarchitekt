@@ -11,7 +11,8 @@ import type { RefImage } from '../core/generated/RefImage'
 import type { WallFootprint } from '../core/generated/WallFootprint'
 import { fmtArea, fmtLength } from '../core/format'
 import { resolveMaterial } from '../core/materials'
-import { add, dist, leftNormal, mul, norm, pointInPolygon, polyPoints, sub, type Vec } from './geom'
+import { add, dist, leftNormal, mul, norm, pointInPolygon, polyPoints, rotate, sub, type Vec } from './geom'
+import { podiumSteps } from '../core/furniture'
 import { furnitureCorners, lightWorldPos, nodeMap, openingGeom, wallPoints, type NodeMap } from './model'
 import { gridLevels, toWorld, type View } from './view'
 
@@ -199,6 +200,7 @@ export function FurnitureShape({ f, overlap, scale, className = '', interactive 
       <polygon points={polyPoints(c)} style={f.material ? { fill: resolveMaterial(f.material).color } : undefined} />
       {/* front edge (local +y) */}
       <line className="front" x1={c[2][0]} y1={c[2][1]} x2={c[3][0]} y2={c[3][1]} />
+      {f.walkable && <StepLines f={f} />}
       {showName && (
         <text x={f.pos_mm[0]} y={f.pos_mm[1]} fontSize={fs} textAnchor="middle" dominantBaseline="central" pointerEvents="none">
           {f.name}
@@ -208,11 +210,31 @@ export function FurnitureShape({ f, overlap, scale, className = '', interactive 
   )
 }
 
+/** Tread edges of a podium: one line per step, parallel to the front. */
+function StepLines({ f }: { f: FurnitureInstance }) {
+  const { rises, tread } = podiumSteps(f.dims_mm)
+  const [w, d] = f.dims_mm
+  const c: Vec = [f.pos_mm[0], f.pos_mm[1]]
+  const lines = Array.from({ length: rises - 1 }, (_, i) => {
+    const y = d / 2 - (i + 1) * tread
+    return [add(c, rotate([-w / 2, y], f.rotation_deg)), add(c, rotate([w / 2, y], f.rotation_deg))]
+  })
+  return (
+    <>
+      {lines.map(([a, b], i) => (
+        <line key={i} className="step" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} />
+      ))}
+    </>
+  )
+}
+
 export const FurnitureLayer = memo(function FurnitureLayer({ items, overlaps, scale }: { items: FurnitureInstance[]; overlaps: string[]; scale: number }) {
   const ov = useMemo(() => new Set(overlaps), [overlaps])
+  // podiums underneath everything standing on them
+  const sorted = useMemo(() => [...items].sort((a, b) => Number(b.walkable) - Number(a.walkable)), [items])
   return (
     <g>
-      {items.map((f) => (
+      {sorted.map((f) => (
         <FurnitureShape key={f.id} f={f} overlap={ov.has(f.id)} scale={scale} />
       ))}
     </g>

@@ -16,4 +16,8 @@ dims_mm: [number, number, number],
 /**
  * Optional colour/material override (used by primitives).
  */
-material: string | null, };
+material: string | null, 
+/**
+ * Podium: people walk on it and furniture stands on it (steps along the front, see `primitives::podium_steps`).
+ */
+walkable: boolean, };

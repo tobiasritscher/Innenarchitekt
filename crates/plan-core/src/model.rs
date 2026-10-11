@@ -199,6 +199,9 @@ pub struct FurnitureInstance {
     pub dims_mm: [u32; 3],
     /// Optional colour/material override (used by primitives).
     pub material: Option<MaterialRef>,
+    /// Podium: people walk on it and furniture stands on it (steps along the front, see `primitives::podium_steps`).
+    #[serde(default)]
+    pub walkable: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -342,5 +345,10 @@ mod tests {
         }))
         .unwrap();
         assert!(p.light_scenes.is_empty());
+        let f: FurnitureInstance = serde_json::from_value(serde_json::json!({
+            "id": id, "asset": id, "name": "x", "pos_mm": [0, 0, 0], "rotation_deg": 0.0, "dims_mm": [1, 1, 1], "material": null
+        }))
+        .unwrap();
+        assert!(!f.walkable);
     }
 }

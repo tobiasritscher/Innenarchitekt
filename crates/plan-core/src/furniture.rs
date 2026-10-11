@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::geom::*;
 use crate::model::*;
+use crate::primitives::podium_height_at;
 use crate::rooms::derive_rooms;
 use crate::walls::{footprints, wall_pieces, WallFootprint};
 
@@ -136,6 +137,25 @@ pub fn furniture_footprint(item: &FurnitureInstance) -> [P; 4] {
     )
 }
 
+/// Surface height (mm) of a walkable item at plan point `p`, None if outside its footprint.
+pub fn surface_height_at(item: &FurnitureInstance, p: P) -> Option<f64> {
+    if !item.walkable {
+        return None;
+    }
+    let c = [item.pos_mm[0] as f64, item.pos_mm[1] as f64];
+    let l = rotate(sub(p, c), -(item.rotation_deg as f64));
+    let (hw, hd) = (item.dims_mm[0] as f64 / 2.0, item.dims_mm[1] as f64 / 2.0);
+    if l[0].abs() > hw || l[1].abs() > hd {
+        return None;
+    }
+    Some(item.pos_mm[2] as f64 + podium_height_at(item.dims_mm, l[1]))
+}
+
+/// Floor height (mm) at plan point `at`: top of the highest walkable item there (ignoring `except`), else 0.
+pub fn floor_height_at(p: &Project, at: P, except: Option<Id>) -> f64 {
+    p.furniture.iter().filter(|i| Some(i.id) != except).filter_map(|i| surface_height_at(i, at)).fold(0.0, f64::max)
+}
+
 /// Ids of furniture that overlap other furniture or walls.
 pub fn overlaps(p: &Project) -> Vec<Id> {
     let Some(f) = p.floors.first() else { return vec![] };
@@ -150,6 +170,13 @@ pub fn overlaps(p: &Project) -> Vec<Id> {
                 return false;
             }
             let zb = (b.pos_mm[2] as f64, b.pos_mm[2] as f64 + b.dims_mm[2] as f64);
+            // standing on a podium is fine
+            let on = |top: &FurnitureInstance, item: &FurnitureInstance| {
+                surface_height_at(top, [item.pos_mm[0] as f64, item.pos_mm[1] as f64]).is_some_and(|h| item.pos_mm[2] as f64 >= h - 5.0)
+            };
+            if on(b, a) || on(a, b) {
+                return false;
+            }
             za.0 < zb.1 - 1.0 && zb.0 < za.1 - 1.0 && convex_overlap(pa, pb, 1.0)
         });
         let hit_wall = pieces.iter().any(|w| za.0 < w.z1 - 1.0 && w.z0 < za.1 - 1.0 && convex_overlap(pa, &w.poly, 1.0));
@@ -167,7 +194,7 @@ pub fn walk_colliders(p: &Project) -> Vec<Vec<P>> {
     let mut out: Vec<Vec<P>> = wall_pieces(f, &fps, true).into_iter().map(|w| w.poly).collect();
     for item in &p.furniture {
         // low items (rugs) and things hanging above head height don't block
-        if item.dims_mm[2] < 150 || item.pos_mm[2] > 1800 {
+        if item.walkable || item.dims_mm[2] < 150 || item.pos_mm[2] > 1800 {
             continue;
         }
         out.push(furniture_footprint(item).to_vec());
@@ -256,10 +283,37 @@ mod tests {
             rotation_deg: 0.0,
             dims_mm: [1000, 600, 800],
             material: None,
+            walkable: false,
         };
         let c = clearances(&f, &item);
         assert_eq!(c.left, Some(1400.0));
         assert_eq!(c.back, Some(1600.0));
+    }
+
+    #[test]
+    fn podium_is_walkable_and_carries_furniture() {
+        let mut p = Project::new(Uuid::new_v4(), "t");
+        p.floors[0] = room();
+        // 2 rises (340 mm): front tread 280 mm at 170 mm, rest at 340 mm. Front faces +y.
+        let pod = FurnitureInstance {
+            id: Uuid::new_v4(),
+            asset: Uuid::new_v4(),
+            name: "Podest".into(),
+            pos_mm: [2000, 1000, 0],
+            rotation_deg: 0.0,
+            dims_mm: [3000, 1600, 340],
+            material: None,
+            walkable: true,
+        };
+        assert_eq!(floor_height_at(&{ let mut q = p.clone(); q.furniture.push(pod.clone()); q }, [2000.0, 1700.0], None), 170.0);
+        let table = FurnitureInstance { id: Uuid::new_v4(), name: "Tisch".into(), pos_mm: [2000, 800, 340], dims_mm: [800, 800, 750], walkable: false, ..pod.clone() };
+        p.furniture = vec![pod.clone(), table];
+        assert_eq!(floor_height_at(&p, [2000.0, 500.0], None), 340.0);
+        assert_eq!(floor_height_at(&p, [2000.0, 500.0], Some(pod.id)), 0.0);
+        assert_eq!(floor_height_at(&p, [2000.0, 3000.0], None), 0.0);
+        assert!(overlaps(&p).is_empty(), "{:?}", overlaps(&p));
+        // the podium itself is no obstacle
+        assert_eq!(walk_colliders(&p).len(), 4 + 1); // walls + table, not the podium
     }
 
     #[test]

@@ -17,10 +17,12 @@ pub enum PrimitiveShape {
     Chair,
     Shelf,
     Wardrobe,
+    /// Raised floor area (walkable) with steps along its front side.
+    Podest,
 }
 
 impl PrimitiveShape {
-    pub const ALL: [PrimitiveShape; 9] = [
+    pub const ALL: [PrimitiveShape; 10] = [
         PrimitiveShape::Box,
         PrimitiveShape::Cylinder,
         PrimitiveShape::Plate,
@@ -30,6 +32,7 @@ impl PrimitiveShape {
         PrimitiveShape::Chair,
         PrimitiveShape::Shelf,
         PrimitiveShape::Wardrobe,
+        PrimitiveShape::Podest,
     ];
     pub fn label_de(&self) -> &'static str {
         match self {
@@ -42,6 +45,7 @@ impl PrimitiveShape {
             PrimitiveShape::Chair => "Stuhl",
             PrimitiveShape::Shelf => "Regal",
             PrimitiveShape::Wardrobe => "Schrank",
+            PrimitiveShape::Podest => "Podest mit Stufen",
         }
     }
     /// Default dimensions (w, d, h) in mm.
@@ -56,7 +60,12 @@ impl PrimitiveShape {
             PrimitiveShape::Chair => [450, 520, 850],
             PrimitiveShape::Shelf => [800, 350, 1800],
             PrimitiveShape::Wardrobe => [1500, 600, 2200],
+            PrimitiveShape::Podest => [3000, 2500, 340],
         }
+    }
+    /// Walkable (people and furniture stand on it) instead of an obstacle.
+    pub fn walkable(&self) -> bool {
+        matches!(self, PrimitiveShape::Podest)
     }
 }
 
@@ -99,6 +108,29 @@ fn add_cylinder(b: &mut MeshBuilder, slot: &str, c: [f32; 3], rx: f32, rz: f32, 
         );
         b.quad_fan(slot, &[[c[0], y1, c[2]], [p1[0], y1, p1[1]], [p0[0], y1, p0[1]]], [0.0, 1.0, 0.0], &[[0.5, 0.5], [0.5 + c1 / 2.0, 0.5 + s1 / 2.0], [0.5 + c0 / 2.0, 0.5 + s0 / 2.0]]);
         b.quad_fan(slot, &[[c[0], y0, c[2]], [p0[0], y0, p0[1]], [p1[0], y0, p1[1]]], [0.0, -1.0, 0.0], &[[0.5, 0.5], [0.5 + c0 / 2.0, 0.5 + s0 / 2.0], [0.5 + c1 / 2.0, 0.5 + s1 / 2.0]]);
+    }
+}
+
+/// Steps of a podium: (number of rises, tread depth mm). Rise ≈ 170 mm; the front `rises − 1` treads
+/// lie inside the footprint, the rest is the platform at full height.
+pub fn podium_steps(dims_mm: [u32; 3]) -> (u32, f64) {
+    let h = dims_mm[2] as f64;
+    let d = dims_mm[1] as f64;
+    let n = ((h / 170.0).round() as u32).max(1);
+    let tread = if n > 1 { 280.0f64.min(d / 2.0 / (n - 1) as f64) } else { 0.0 };
+    (n, tread)
+}
+
+/// Surface height (mm) of a podium at local depth `y` (front = +d/2).
+pub fn podium_height_at(dims_mm: [u32; 3], y_local: f64) -> f64 {
+    let (n, tread) = podium_steps(dims_mm);
+    let h = dims_mm[2] as f64;
+    let s = dims_mm[1] as f64 / 2.0 - y_local; // distance from the front edge
+    if n > 1 && s < (n - 1) as f64 * tread {
+        let j = (s.max(0.0) / tread).floor() as u32 + 1;
+        h * j as f64 / n as f64
+    } else {
+        h
     }
 }
 
@@ -164,6 +196,20 @@ pub fn primitive_mesh(shape: PrimitiveShape, dims_mm: [u32; 3]) -> Mesh {
             for i in 0..=n {
                 let y = (t / 2.0 + (h - t) * i as f32 / n as f32).min(h - t / 2.0);
                 add_box(&mut b, "main", [0.0, y, 0.0], [w - 2.0 * t, t, d]);
+            }
+        }
+        PrimitiveShape::Podest => {
+            let (n, tread) = podium_steps(dims_mm);
+            let t = tread as f32 / 1000.0;
+            let front = d / 2.0 - (n - 1) as f32 * t;
+            add_box(&mut b, "main", [0.0, h / 2.0, (-d / 2.0 + front) / 2.0], [w, h, front + d / 2.0]);
+            for j in 1..n {
+                // step j from the front: z range [d/2 − j·t, d/2 − (j−1)·t]
+                let sh = h * j as f32 / n as f32;
+                let z1 = d / 2.0 - (j - 1) as f32 * t;
+                add_box(&mut b, "main", [0.0, sh / 2.0, z1 - t / 2.0], [w, sh, t]);
+                // dark nosing line on each step edge
+                add_box(&mut b, "accent", [0.0, sh - 0.004, z1 - 0.004], [w, 0.008, 0.008]);
             }
         }
         PrimitiveShape::Wardrobe => {

@@ -25,6 +25,7 @@ const assets = [
   asset('Bett', 'Bed', [1600, 2050, 900]),
   asset('Schrank', 'Wardrobe', [1500, 600, 2200]),
   asset('Regal', 'Shelf', [800, 350, 1800]),
+  asset('Podest mit Stufen', 'Podest', [3000, 2500, 340]),
   asset('Stehlampe', 'Cylinder', [300, 300, 1600], { kind: { type: 'Point' }, offset_mm: [0, 0, 1650], lumen: 1200, color_temp_k: 2700 }),
   { ...asset('Kommode (Modell fehlt)', 'Box', [800, 450, 900]), kind: 'Upload', model_url: '/api/assets/x/model.glb', warnings: ['Abweichung 4 %'] },
 ]
@@ -110,10 +111,13 @@ function buildProject() {
     { id: id(), anchor: [8000, 1700], name: 'Schlafen', floor_material: 'wood:oak', ceiling_material: 'paint:white', open_ceiling: false },
     { id: id(), anchor: [8000, 5200], name: 'Bad', floor_material: 'tile:grey', ceiling_material: 'paint:white', open_ceiling: false },
   ]
-  const F = (a: (typeof assets)[number], x: number, y: number, rot = 0, material: string | null = null) => ({ id: id(), asset: a.id, name: a.name, pos_mm: [x, y, 0], rotation_deg: rot, dims_mm: [...a.dims_mm], material })
+  const F = (a: (typeof assets)[number], x: number, y: number, rot = 0, material: string | null = null) => ({ id: id(), asset: a.id, name: a.name, pos_mm: [x, y, 0], rotation_deg: rot, dims_mm: [...a.dims_mm], material, walkable: false })
   const lamp = F(A['Stehlampe'], 600, 6300, 0, 'metal:black')
+  // living area raised by two steps (podium in front of the sofa)
+  const podium = { ...F(A['Podest mit Stufen'], 3000, 1400, 0, 'wood:oak'), dims_mm: [5700, 2500, 340], walkable: true }
   const furniture = [
-    F(A['Sofa'], 2600, 1500, 0, 'fabric:linen'),
+    podium,
+    { ...F(A['Sofa'], 2600, 1000, 0, 'fabric:linen'), pos_mm: [2600, 1000, 340] },
     F(A['Esstisch'], 3000, 5000, 0, 'wood:walnut'),
     F(A['Stuhl'], 2500, 4300, 0),
     F(A['Stuhl'], 3500, 4300, 0),
@@ -124,7 +128,7 @@ function buildProject() {
     F(A['Schrank'], 6600, 2500, 90),
     F(A['Kommode (Modell fehlt)'], 9500, 2600, 270),
     F(A['Regal'], 3100, 5100, 30), // overlaps the table on purpose
-    F(A['Sessel (GLB-Test)'], 4600, 2000, 300),
+    { ...F(A['Sessel (GLB-Test)'], 4600, 1600, 300), pos_mm: [4600, 1600, 340] },
     lamp,
   ]
   const light = (name: string, x: number, y: number, z: number, lumen: number, k: number, kind: unknown = { type: 'Point' }, attached: string | null = null) => ({ id: id(), name, kind, pos_mm: [x, y, z], lumen, color_temp_k: k, on: true, attached_to: attached })

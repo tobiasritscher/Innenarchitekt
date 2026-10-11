@@ -18,6 +18,7 @@ const SHAPES: { shape: PrimitiveShape; label: string; dims: [number, number, num
   { shape: 'Chair', label: 'Stuhl', dims: [450, 520, 850] },
   { shape: 'Shelf', label: 'Regal', dims: [800, 350, 1800] },
   { shape: 'Wardrobe', label: 'Schrank', dims: [1500, 600, 2200] },
+  { shape: 'Podest', label: 'Podest mit Stufen', dims: [3000, 2500, 340] },
 ]
 
 function errText(e: unknown): string {
@@ -348,6 +349,7 @@ export function ShapeIcon({ shape, model = false }: { shape: PrimitiveShape; mod
     Chair: <path d="M10 4 V17 H22 V25 M10 17 V25 M10 17 H22 M10 4 H13 V17" />,
     Shelf: <path d="M8 4 H24 V27 H8 Z M8 10 H24 M8 16 H24 M8 22 H24" />,
     Wardrobe: <path d="M6 4 H26 V27 H6 Z M16 4 V27 M13 14 V17 M19 14 V17" />,
+    Podest: <path d="M3 25 H29 M3 25 V21 H9 V17 H29 V25 M9 21 H29" />,
   }
   return (
     <svg viewBox="0 0 32 32" className="v3d-icon" aria-hidden>
