@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber'
 import { EffectComposer, N8AO, ToneMapping } from '@react-three/postprocessing'
 import { ToneMappingMode } from 'postprocessing'
-import { PCFShadowMap, Raycaster, type WebGLRenderer } from 'three'
+import { BufferGeometry, Float32BufferAttribute, LineBasicMaterial, MeshBasicMaterial, PCFShadowMap, Raycaster, SphereGeometry, type WebGLRenderer } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { useRooms } from '../core/derived'
 import { fmtArea } from '../core/format'
@@ -27,8 +27,8 @@ import { QUALITY, QUALITY_LABEL, RendererSetup } from './common'
 import { Daylight } from './Daylight'
 import { DoorsButton, useDoorIds } from './doors'
 import { FurnitureLayer, type FurnitureHandlers } from './Furniture'
-import { LED_KELVIN, LED_LM_PER_M, stripFromDrag, type V3 } from './lightGeom'
-import { LightMarkers, LightRig, type LightHandlers, type PlacedLight } from './Lights'
+import { LED_KELVIN, LED_LM_PER_M, aimAt, lightDir, stripFromDrag, type V3 } from './lightGeom'
+import { LightMarkers, LightRig, usePlacedLights, type LightHandlers, type PlacedLight } from './Lights'
 import { LAMP_TEMPLATES, planeHit, plateAssetId, surfaceHit, type HitCtx, type SurfaceHit, type TemplateKey } from './lightTools'
 import { DaylightControls, LampList, LightScenes, saveCanvasPng, useLampLux } from './Mood'
 import { PathTraceHost, PathTraceOverlay, usePathTrace } from './PathTrace'
@@ -365,6 +365,7 @@ function LightScene({ room }: { room: DerivedRoom }) {
       <FurnitureLayer pick={furniturePick} only={furnitureIn} />
       <LightRig budget={q.budget} mapSize={q.lampMap} />
       <LightMarkers pick={lightPick} only={lightIn} />
+      <AimHandle ctx={ctx} />
       <PlaceTool ctx={ctx} inside={inside} />
       <RoomCamera room={room} />
     </>
@@ -469,4 +470,54 @@ async function placeStrip(start: SurfaceHit, end: V3) {
     },
   ]
   if (useProject.getState().commit(ops, 'LED-Streifen setzen')) useEditor.getState().select({ kind: 'light', id: (ops[1] as { light: Light }).light.id })
+}
+
+const AIM_M = 0.6
+const aimMat = new MeshBasicMaterial({ color: '#c8642e', depthTest: false, transparent: true })
+const aimLineMat = new LineBasicMaterial({ color: '#c8642e', depthTest: false, transparent: true, opacity: 0.8 })
+const aimGeo = new SphereGeometry(0.05, 16, 12)
+
+/** Selected spot: a handle 60 cm along the beam; drag it onto a surface to aim the spot there (one undo step). */
+function AimHandle({ ctx }: { ctx: () => HitCtx }) {
+  const selection = useEditor((s) => s.selection)
+  const placed = usePlacedLights()
+  const furniture = useProject((s) => s.project?.furniture)
+  const controls = useThree((s) => s.controls) as OrbitControlsImpl | null
+  const p = selection?.kind === 'light' ? placed.find((x) => x.light.id === selection.id) : undefined
+  const host = p?.light.attached_to ? furniture?.find((f) => f.id === p.light.attached_to) : undefined
+  const dir = p ? lightDir(p.light, host) : null
+  const line = useMemo(() => new BufferGeometry(), [])
+  useEffect(() => () => line.dispose(), [line])
+  if (!p || !dir) return null
+  // plan (x, y, z up) → three (x, z, y)
+  const end: V3 = [p.pos.x + dir[0] * AIM_M, p.pos.y + dir[2] * AIM_M, p.pos.z + dir[1] * AIM_M]
+  line.setAttribute('position', new Float32BufferAttribute([p.pos.x, p.pos.y, p.pos.z, ...end], 3))
+  const onDown = (e: ThreeEvent<PointerEvent>) => {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    const l = p.light
+    const from: V3 = [p.pos.x * 1000, p.pos.z * 1000, p.pos.y * 1000]
+    let moved = false
+    if (controls) controls.enabled = false
+    const move = (ev: PointerEvent) => {
+      const h = surfaceHit(ev, ctx(), false)
+      if (!h || l.kind.type !== 'Spot') return
+      moved = true
+      useProject.getState().setTransient([{ op: 'PutLight', light: { ...l, kind: { ...l.kind, ...aimAt(from, h.at, host?.rotation_deg ?? 0) } } }])
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      if (controls) controls.enabled = true
+      if (moved) useProject.getState().endTransient(true, 'Spot ausrichten')
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+  return (
+    <group>
+      <lineSegments geometry={line} material={aimLineMat} renderOrder={11} raycast={() => {}} />
+      <mesh geometry={aimGeo} material={aimMat} position={end} renderOrder={12} userData={{ marker: true }} onPointerDown={onDown} />
+    </group>
+  )
 }

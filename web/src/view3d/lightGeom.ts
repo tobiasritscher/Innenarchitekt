@@ -18,6 +18,16 @@ export function lightDir(l: Light, host?: FurnitureInstance): V3 | null {
   return [Math.sin(t) * Math.cos(h), Math.sin(t) * Math.sin(h), -Math.cos(t)]
 }
 
+/** Spot aim (whole degrees) from `from` towards `to`; heading relative to a host furniture turned by `hostRot`. */
+export function aimAt(from: V3, to: V3, hostRot = 0): { tilt_deg: number; heading_deg: number } {
+  const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]]
+  const len = Math.hypot(d[0], d[1], d[2]) || 1
+  const tilt = (Math.acos(Math.max(-1, Math.min(1, -d[2] / len))) * 180) / Math.PI
+  const flat = Math.hypot(d[0], d[1]) > 1e-6
+  const heading = flat ? ((((Math.atan2(d[1], d[0]) * 180) / Math.PI - hostRot) % 360) + 360) % 360 : 0
+  return { tilt_deg: Math.round(tilt), heading_deg: Math.round(heading) % 360 }
+}
+
 /** Emitting rectangle of a glowing object's side, in the three furniture frame (m, Y up, +Z front, origin bottom
  *  centre). The rect emits along its local −Z after rotating by rotX/rotY. */
 export function surfaceRect(face: Exclude<GlowFace, 'All'>, dims: V3) {

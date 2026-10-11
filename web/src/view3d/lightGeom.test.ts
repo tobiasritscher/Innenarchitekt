@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { facingNormal, lightDir, stripFromDrag, surfaceIntensity, surfaceRect } from './lightGeom'
+import { aimAt, facingNormal, lightDir, stripFromDrag, surfaceIntensity, surfaceRect } from './lightGeom'
 import type { Light } from '../core/generated/Light'
 import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
 
@@ -69,4 +69,15 @@ describe('stripFromDrag', () => {
     expect(s.rotation_deg).toBe(270)
   })
   it('too short → null', () => expect(stripFromDrag([0, 0, 0], [30, 0, 0], [0, 0, 1])).toBeNull())
+})
+
+describe('aimAt', () => {
+  it('straight down, up and towards +y', () => {
+    expect(aimAt([0, 0, 2500], [0, 0, 0])).toEqual({ tilt_deg: 0, heading_deg: 0 })
+    expect(aimAt([0, 0, 0], [0, 0, 2500]).tilt_deg).toBe(180)
+    expect(aimAt([0, 0, 1000], [0, 2000, 1000])).toEqual({ tilt_deg: 90, heading_deg: 90 })
+  })
+  it('heading relative to the host furniture', () => {
+    expect(aimAt([0, 0, 1000], [0, 2000, 1000], 90).heading_deg).toBe(0)
+  })
 })
