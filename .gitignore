@@ -10,3 +10,4 @@ node_modules
 *.tsbuildinfo
 /server/testset/private_*
 /.claude/worktrees
+.superpowers/
