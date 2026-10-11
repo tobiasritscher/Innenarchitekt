@@ -250,13 +250,7 @@ pub(crate) fn state_json(p: &Project, cx: &Ctx) -> Value {
     let lights: Vec<Value> = p
         .lights
         .iter()
-        .map(|l| {
-            json!({
-                "id": ids.s(l.id), "name": l.name, "type": match l.kind { LightKind::Point => "point", LightKind::Spot { tilt_deg, .. } if tilt_deg > 135.0 => "uplight", LightKind::Spot { .. } => "spot", LightKind::Area { .. } => "area", LightKind::Surface { .. } => "glow" },
-                "pos": l.pos_mm, "attached_to": l.attached_to.map(|a| ids.s(a)),
-                "lumen": l.lumen, "kelvin": l.color_temp_k, "on": l.on,
-            })
-        })
+        .map(|l| light_json(l, ids))
         .collect();
     let assets: Vec<Value> = cx
         .assets
@@ -327,7 +321,13 @@ pub(crate) fn action_schema() -> Value {
                         "open_ceiling": {"type": "boolean"}, "material": {"type": "string"},
                         "rotation_deg": {"type": "number"}, "snap_to_wall": {"type": "boolean"},
                         "on": {"type": "boolean"}, "lumen": {"type": "number"}, "kelvin": {"type": "number"},
-                        "light_type": {"type": "string", "enum": ["point", "spot"]}, "ceiling_height_mm": {"type": "number"},
+                        "light_type": {"type": "string", "enum": ["point", "spot", "uplight", "area"]}, "ceiling_height_mm": {"type": "number"},
+                        "tilt_deg": {"type": "number", "description": "spot: 0 = down, 90 = horizontal, 180 = up (indirect)"},
+                        "heading_deg": {"type": "number", "description": "spot: plan direction it leans to (0 = +x, 90 = +y)"},
+                        "angle_deg": {"type": "number", "description": "spot: beam angle"},
+                        "attach_to": {"type": "string", "description": "add_light: furniture id; x/y/z are then local to it (z from its bottom)"},
+                        "glow": {"type": ["object", "null"], "description": "add_primitive/set_furniture: the object glows (lamp shade, LED strip); null removes",
+                                 "properties": {"face": {"type": "string", "enum": ["all", "down", "up", "front"]}, "lumen": {"type": "number"}, "kelvin": {"type": "number"}}},
                         "shape": {"type": "string", "enum": ["box", "cylinder", "plate", "sofa", "bed", "table", "chair", "shelf", "wardrobe", "podest"], "description": "add_primitive: parametric placeholder shape"}
                     }
                 })
@@ -337,6 +337,39 @@ pub(crate) fn action_schema() -> Value {
 // ------------------------------------------------------------------ action → ops
 
 type R<T> = Result<T, String>;
+
+/// A lamp for the model: type, position (local if attached), aim of spots, glowing side of objects.
+pub(crate) fn light_json(l: &Light, ids: &Ids) -> Value {
+    let mut v = json!({
+        "id": ids.s(l.id), "name": l.name,
+        "type": match l.kind { LightKind::Point => "point", LightKind::Spot { tilt_deg, .. } if tilt_deg > 135.0 => "uplight", LightKind::Spot { .. } => "spot", LightKind::Area { .. } => "area", LightKind::Surface { .. } => "glow" },
+        "pos": l.pos_mm, "attached_to": l.attached_to.map(|a| ids.s(a)),
+        "lumen": l.lumen, "kelvin": l.color_temp_k, "on": l.on,
+    });
+    match l.kind {
+        LightKind::Spot { angle_deg, tilt_deg, heading_deg } => {
+            v["angle_deg"] = json!(r1(angle_deg as f64));
+            v["tilt_deg"] = json!(r1(tilt_deg as f64));
+            v["heading_deg"] = json!(r1(heading_deg as f64));
+        }
+        LightKind::Surface { face } => {
+            v["face"] = json!(match face { GlowFace::All => "all", GlowFace::Down => "down", GlowFace::Up => "up", GlowFace::Front => "front" });
+            v.as_object_mut().unwrap().remove("pos");
+        }
+        _ => {}
+    }
+    v
+}
+
+fn glow_face(s: &str) -> Option<GlowFace> {
+    Some(match s {
+        "all" => GlowFace::All,
+        "down" => GlowFace::Down,
+        "up" => GlowFace::Up,
+        "front" => GlowFace::Front,
+        _ => return None,
+    })
+}
 
 pub(crate) fn num(a: &Value, k: &str) -> Option<f64> {
     a.get(k).and_then(|v| v.as_f64()).filter(|v| v.is_finite())
@@ -403,6 +436,25 @@ impl Tr<'_> {
     fn mat_name(&self, m: &str) -> String {
         self.cx.materials.iter().find(|(id, _)| id == m).map(|(_, n)| n.clone()).unwrap_or_else(|| m.to_string())
     }
+    /// Ops for `glow` on furniture `fid`: put/replace its surface light, or delete it on null. None if the key is absent.
+    fn glow_ops(&self, a: &Value, fid: Uuid, name: &str) -> R<Option<Vec<Op>>> {
+        let Some(g) = a.get("glow") else { return Ok(None) };
+        let existing = self.p.lights.iter().find(|l| l.attached_to == Some(fid) && matches!(l.kind, LightKind::Surface { .. })).cloned();
+        if g.is_null() {
+            return Ok(Some(existing.map(|l| vec![Op::DeleteLight { id: l.id }]).unwrap_or_default()));
+        }
+        let face = glow_face(txt(g, "face").unwrap_or("all")).ok_or("unbekannte Leuchtseite")?;
+        let mut l = existing.unwrap_or(Light { id: Uuid::new_v4(), name: format!("Licht {name}"), kind: LightKind::Surface { face }, pos_mm: [0, 0, 0], lumen: 800, color_temp_k: 2700, on: true, attached_to: Some(fid) });
+        l.kind = LightKind::Surface { face };
+        if let Some(v) = num(g, "lumen") {
+            l.lumen = v.round().clamp(0.0, 100_000.0) as u32;
+        }
+        if let Some(v) = num(g, "kelvin") {
+            l.color_temp_k = v.round().clamp(1000.0, 10_000.0) as u16;
+        }
+        Ok(Some(vec![Op::PutLight { light: l }]))
+    }
+
     fn push(&mut self, ops: Vec<Op>) -> R<()> {
         apply_batch(&mut self.p, &ops).map(|_| ()).map_err(|(_, e)| format!("{e}"))
     }
@@ -735,9 +787,11 @@ impl Tr<'_> {
                     None => None,
                 };
                 let name = txt(a, "name").map(str::to_string).unwrap_or_else(|| sh.label_de().to_string());
-                self.push(vec![Op::PutFurniture {
+                let fid = Uuid::new_v4();
+                let glow = self.glow_ops(a, fid, &name)?;
+                let mut ops = vec![Op::PutFurniture {
                     item: FurnitureInstance {
-                        id: Uuid::new_v4(),
+                        id: fid,
                         asset: asset.id,
                         name: name.clone(),
                         pos_mm: [x.round() as i32, y.round() as i32, num(a, "z_mm").unwrap_or(0.0).round().max(0.0) as i32],
@@ -749,7 +803,9 @@ impl Tr<'_> {
                         footprint: vec![],
                         passable: false,
                     },
-                }])?;
+                }];
+                ops.extend(glow.unwrap_or_default());
+                self.push(ops)?;
                 Ok(format!("{name} ({}×{}×{} cm)", dims[0] / 10, dims[1] / 10, dims[2] / 10))
             }
             "move_furniture" | "set_furniture" => {
@@ -788,13 +844,15 @@ impl Tr<'_> {
                 }
                 let mut ops = vec![Op::PutFurniture { item: it.clone() }];
                 // attached lights scale with the furniture (same as the properties panel)
-                for l in self.p.lights.iter().filter(|l| l.attached_to == Some(id)) {
+                let glow = self.glow_ops(a, id, &it.name)?;
+                for l in self.p.lights.iter().filter(|l| l.attached_to == Some(id) && !(glow.is_some() && matches!(l.kind, LightKind::Surface { .. }))) {
                     let mut l = l.clone();
                     for i in 0..3 {
                         l.pos_mm[i] = (l.pos_mm[i] as f64 * it.dims_mm[i] as f64 / old_dims[i].max(1) as f64).round() as i32;
                     }
                     ops.push(Op::PutLight { light: l });
                 }
+                ops.extend(glow.unwrap_or_default());
                 self.push(ops)?;
                 Ok(format!("{} {}", it.name, if ty == "move_furniture" { "verschieben" } else { "anpassen" }))
             }
@@ -818,7 +876,7 @@ impl Tr<'_> {
                         pos_mm: [
                             num(a, "x_mm").ok_or("«x_mm» fehlt")?.round() as i32,
                             num(a, "y_mm").ok_or("«y_mm» fehlt")?.round() as i32,
-                            num(a, "z_mm").unwrap_or(ceil - 150.0).round() as i32,
+                            num(a, "z_mm").unwrap_or(if a.get("attach_to").is_some() { 0.0 } else { ceil - 150.0 }).round() as i32,
                         ],
                         lumen: 800,
                         color_temp_k: 2700,
@@ -837,7 +895,26 @@ impl Tr<'_> {
                     l.name = n.to_string();
                 }
                 if let Some(t) = txt(a, "light_type") {
-                    l.kind = if t == "spot" { LightKind::Spot { angle_deg: 40.0, tilt_deg: 0.0, heading_deg: 0.0 } } else { LightKind::Point };
+                    l.kind = match t {
+                        "spot" => LightKind::Spot { angle_deg: 40.0, tilt_deg: 0.0, heading_deg: 0.0 },
+                        "uplight" => LightKind::Spot { angle_deg: 60.0, tilt_deg: 180.0, heading_deg: 0.0 },
+                        "area" => LightKind::Area { w_mm: 600, h_mm: 600 },
+                        _ => LightKind::Point,
+                    };
+                }
+                if let LightKind::Spot { angle_deg, tilt_deg, heading_deg } = &mut l.kind {
+                    if let Some(v) = num(a, "angle_deg") {
+                        *angle_deg = v.clamp(5.0, 170.0) as f32;
+                    }
+                    if let Some(v) = num(a, "tilt_deg") {
+                        *tilt_deg = v.clamp(0.0, 180.0) as f32;
+                    }
+                    if let Some(v) = num(a, "heading_deg") {
+                        *heading_deg = v.rem_euclid(360.0) as f32;
+                    }
+                }
+                if txt(a, "attach_to").is_some() {
+                    l.attached_to = Some(self.id(a, "attach_to")?);
                 }
                 if let Some(v) = boolean(a, "on") {
                     l.on = v;
@@ -1166,5 +1243,46 @@ mod tests {
         assert_eq!((o.offset_mm, o.width_mm), (1050, 900));
         let out = translate(&p, &cx, &json!({"answer": "Ja, 3 m breit.", "actions": []}));
         assert!(out.ops.is_empty() && out.answer.starts_with("Ja"));
+    }
+
+    #[test]
+    fn builds_glowing_lamp_and_uplight() {
+        let p = flat();
+        let assets = vec![crate::assets::primitive_template(PrimitiveShape::Cylinder)];
+        let cx = build_ctx(&p, assets, vec![]);
+        let v = json!({"answer": "", "actions": [
+            {"type": "add_primitive", "shape": "cylinder", "name": "Schirm", "width_mm": 400, "depth_mm": 400, "height_mm": 300, "x_mm": 1500, "y_mm": 1500, "z_mm": 1300, "glow": {"face": "all", "lumen": 900, "kelvin": 2700}},
+            {"type": "add_light", "light_type": "uplight", "x_mm": 500, "y_mm": 500, "z_mm": 30}
+        ]});
+        let out = translate(&p, &cx, &v);
+        assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+        let mut q = p.clone();
+        apply_batch(&mut q, &out.ops).unwrap();
+        let shade = q.furniture.iter().find(|f| f.name == "Schirm").unwrap();
+        let glow = q.lights.iter().find(|l| l.attached_to == Some(shade.id)).unwrap();
+        assert_eq!((glow.kind, glow.lumen), (LightKind::Surface { face: GlowFace::All }, 900));
+        let up = q.lights.iter().find(|l| l.attached_to.is_none()).unwrap();
+        assert!(matches!(up.kind, LightKind::Spot { tilt_deg, .. } if tilt_deg == 180.0));
+    }
+
+    #[test]
+    fn glow_null_removes_and_attach_to_is_local() {
+        let mut p = flat();
+        let f = FurnitureInstance { id: Uuid::new_v4(), asset: Uuid::new_v4(), name: "Regal".into(), pos_mm: [2000, 1000, 0], rotation_deg: 90.0, dims_mm: [800, 300, 1800], material: None, walkable: false, overlap_ok: false, footprint: vec![], passable: false };
+        p.furniture.push(f.clone());
+        p.lights.push(Light { id: Uuid::new_v4(), name: "g".into(), kind: LightKind::Surface { face: GlowFace::Down }, pos_mm: [0, 0, 0], lumen: 500, color_temp_k: 3000, on: true, attached_to: Some(f.id) });
+        let cx = ctx(&p);
+        let fid = cx.ids.s(f.id);
+        let out = translate(&p, &cx, &json!({"answer": "", "actions": [
+            {"type": "set_furniture", "furniture": fid, "glow": null},
+            {"type": "add_light", "light_type": "spot", "attach_to": fid, "x_mm": 0, "y_mm": 0, "z_mm": 1830, "tilt_deg": 180}
+        ]}));
+        assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+        let mut q = p.clone();
+        apply_batch(&mut q, &out.ops).unwrap();
+        assert!(!q.lights.iter().any(|l| matches!(l.kind, LightKind::Surface { .. })));
+        let s = q.lights.iter().find(|l| l.attached_to == Some(f.id)).unwrap();
+        assert_eq!(s.pos_mm, [0, 0, 1830]);
+        assert!(matches!(s.kind, LightKind::Spot { tilt_deg, .. } if tilt_deg == 180.0));
     }
 }

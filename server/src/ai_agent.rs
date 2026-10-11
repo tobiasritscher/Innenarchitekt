@@ -22,7 +22,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-use crate::ai::{map_refs, r1, room_name, side_room, txt, Ctx, Tr, CONVENTIONS};
+use crate::ai::{light_json, map_refs, r1, room_name, side_room, txt, Ctx, Tr, CONVENTIONS};
 use crate::llm::LlmClient;
 
 const MAX_STEPS: usize = 18;
@@ -43,7 +43,11 @@ Match colours/materials of the photo (hex colours allowed for fronts). 20–60 e
 5. Placement maths for a piece of depth d against a wall face (face p0→p1, into_room normal n): centre = point on the face + n·d/2; \
 rotation_deg = atan2(−n.x, n.y) in degrees (front = local +y points into the room). Positions along the face come from the face \
 coordinates; keep door and window ranges free unless asked.\n\
-6. End with exactly one `finish` call: short German summary for the user (rules below) and refs. Use at most ~15 tool calls.\n\n\
+6. Lighting: light_type uplight = spot pointing up (indirect light, on the floor or on top of tall furniture, ~600 lm). \
+LED strips = plate primitive (height 10 mm, depth 12 mm) with glow (face down under wall cabinets, front on walls), \
+~900 lm per metre, 3000 K. Living areas 2700 K. A lamp can be built from primitives: cylinder base + thin cylinder stem + \
+cylinder shade with glow {face: all}. Attached lamps: add_light with attach_to and local x/y/z.\n\
+7. End with exactly one `finish` call: short German summary for the user (rules below) and refs. Use at most ~15 tool calls.\n\n\
 Rules for `answer`: friendly German addressing the user with «du» (Swiss: «ss», never «ß»; metres like 2.40 m). Plain text, no \
 Markdown; lines starting with «–» are fine. Never mention internal ids (w14, f3 …) – name things like a person would.\n";
 
@@ -323,8 +327,11 @@ fn inspect_room(p: &Project, cx: &Ctx, rid: &str) -> Value {
     let lights: Vec<Value> = p
         .lights
         .iter()
-        .filter(|l| l.attached_to.is_none() && inside(l.pos_mm[0], l.pos_mm[1]))
-        .map(|l| json!({"id": cx.ids.s(l.id), "name": l.name, "pos": l.pos_mm, "lumen": l.lumen, "kelvin": l.color_temp_k, "on": l.on}))
+        .filter(|l| match l.attached_to {
+            None => inside(l.pos_mm[0], l.pos_mm[1]),
+            Some(a) => p.furniture.iter().any(|f| f.id == a && inside(f.pos_mm[0], f.pos_mm[1])),
+        })
+        .map(|l| light_json(l, &cx.ids))
         .collect();
     json!({
         "room": rid, "name": meta.map(|m| m.name.clone()), "area_m2": r1(room.area_m2),
