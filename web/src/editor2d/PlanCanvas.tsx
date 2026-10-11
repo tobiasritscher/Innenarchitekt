@@ -338,6 +338,7 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
       dims_mm: dims,
       material: null,
       walkable: asset.primitive === 'Podest',
+      overlap_ok: asset.primitive === 'Chair',
     }
     item.pos_mm[2] = Math.round(standHeight(source.engine, item.pos_mm[0], item.pos_mm[1]))
     return item

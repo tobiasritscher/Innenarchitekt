@@ -237,7 +237,7 @@ fn issues(orig: &Project, work: &Project, cx: &Ctx) -> Vec<String> {
             let partners: Vec<String> = work
                 .furniture
                 .iter()
-                .filter(|g| g.id != f.id && ov.contains(&g.id))
+                .filter(|g| g.id != f.id && ov.contains(&g.id) && !f.overlap_ok && !g.overlap_ok)
                 .filter(|g| {
                     let (za, zb) = ((f.pos_mm[2], f.pos_mm[2] + f.dims_mm[2] as i32), (g.pos_mm[2], g.pos_mm[2] + g.dims_mm[2] as i32));
                     za.0 < zb.1 - 1 && zb.0 < za.1 - 1 && convex_overlap(&fp, &furniture_footprint(g), 1.0)

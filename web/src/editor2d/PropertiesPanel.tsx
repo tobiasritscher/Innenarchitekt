@@ -9,6 +9,7 @@ import type { OpeningKind } from '../core/generated/OpeningKind'
 import type { RoomMeta } from '../core/generated/RoomMeta'
 import type { Wall } from '../core/generated/Wall'
 import { fmtArea, fmtLength, fmtNumber } from '../core/format'
+import { useOverlaps } from '../core/derived'
 import { useEditor } from '../state/editor'
 import { LengthField, MaterialPicker, NumberField } from '../ui/fields'
 import { dist } from './geom'
@@ -356,6 +357,7 @@ function FurnitureProps({ src, it, onDelete }: { src: PlanSource; it: FurnitureI
           Material zurücksetzen
         </button>
       )}
+      <OverlapOk src={src} it={it} />
       {lights.length > 0 && (
         <>
           <h3>Lichtquellen</h3>
@@ -372,6 +374,29 @@ function FurnitureProps({ src, it, onDelete }: { src: PlanSource; it: FurnitureI
       )}
       <p className="muted small">Ziehen verschiebt (rastet an Wänden ein), R/⇧R dreht 90°/15°.</p>
     </Section>
+  )
+}
+
+/** «Darf überlappen»: no red overlap mark against other furniture (chairs under a table); optionally for all copies. */
+function OverlapOk({ src, it }: { src: PlanSource; it: FurnitureInstance }) {
+  const overlaps = useOverlaps()
+  const same = src.project.furniture.filter((f) => f.asset === it.asset)
+  const differ = same.filter((f) => f.overlap_ok !== it.overlap_ok)
+  const flagged = overlaps.includes(it.id)
+  return (
+    <div className="field">
+      <label className="check">
+        <input type="checkbox" checked={it.overlap_ok} onChange={(e) => src.commit([{ op: 'PutFurniture', item: { ...it, overlap_ok: e.target.checked } }], e.target.checked ? 'Überlappen erlauben' : 'Überlappen melden')} />
+        Darf andere Möbel überlappen
+      </label>
+      <span className="muted small">z. B. Stühle unter dem Tisch – Wände zählen weiterhin.</span>
+      {flagged && !it.overlap_ok && <span className="warning-text small">Überschneidet sich gerade (rot markiert).</span>}
+      {differ.length > 0 && (
+        <button className="link small" onClick={() => src.commit(differ.map((f) => ({ op: 'PutFurniture' as const, item: { ...f, overlap_ok: it.overlap_ok } })), 'Überlappen für gleiche Möbel')}>
+          Für alle {same.length} «{it.name}» übernehmen
+        </button>
+      )}
+    </div>
   )
 }
 

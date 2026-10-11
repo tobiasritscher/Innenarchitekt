@@ -202,6 +202,9 @@ pub struct FurnitureInstance {
     /// Podium: people walk on it and furniture stands on it (steps along the front, see `primitives::podium_steps`).
     #[serde(default)]
     pub walkable: bool,
+    /// May overlap other furniture without being flagged (e.g. chairs pushed under a table). Walls still count.
+    #[serde(default)]
+    pub overlap_ok: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]

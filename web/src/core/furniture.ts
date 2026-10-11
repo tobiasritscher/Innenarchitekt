@@ -19,6 +19,7 @@ export function instantiateAsset(asset: Asset, x: number, y: number, rotationDeg
         dims_mm: [...asset.dims_mm] as [number, number, number],
         material: asset.primitive === 'Podest' ? 'wood:oak' : null,
         walkable: asset.primitive === 'Podest',
+        overlap_ok: asset.primitive === 'Chair',
       },
     },
   ]

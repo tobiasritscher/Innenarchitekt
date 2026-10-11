@@ -20,4 +20,8 @@ material: string | null,
 /**
  * Podium: people walk on it and furniture stands on it (steps along the front, see `primitives::podium_steps`).
  */
-walkable: boolean, };
+walkable: boolean, 
+/**
+ * May overlap other furniture without being flagged (e.g. chairs pushed under a table). Walls still count.
+ */
+overlap_ok: boolean, };

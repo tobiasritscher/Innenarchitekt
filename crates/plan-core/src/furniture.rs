@@ -166,7 +166,7 @@ pub fn overlaps(p: &Project) -> Vec<Id> {
     for (i, (a, pa)) in items.iter().enumerate() {
         let za = (a.pos_mm[2] as f64, a.pos_mm[2] as f64 + a.dims_mm[2] as f64);
         let hit_furniture = items.iter().enumerate().any(|(j, (b, pb))| {
-            if i == j {
+            if i == j || a.overlap_ok || b.overlap_ok {
                 return false;
             }
             let zb = (b.pos_mm[2] as f64, b.pos_mm[2] as f64 + b.dims_mm[2] as f64);
@@ -284,6 +284,7 @@ mod tests {
             dims_mm: [1000, 600, 800],
             material: None,
             walkable: false,
+            overlap_ok: false,
         };
         let c = clearances(&f, &item);
         assert_eq!(c.left, Some(1400.0));
@@ -304,6 +305,7 @@ mod tests {
             dims_mm: [3000, 1600, 340],
             material: None,
             walkable: true,
+            overlap_ok: false,
         };
         assert_eq!(floor_height_at(&{ let mut q = p.clone(); q.furniture.push(pod.clone()); q }, [2000.0, 1700.0], None), 170.0);
         let table = FurnitureInstance { id: Uuid::new_v4(), name: "Tisch".into(), pos_mm: [2000, 800, 340], dims_mm: [800, 800, 750], walkable: false, ..pod.clone() };
@@ -314,6 +316,28 @@ mod tests {
         assert!(overlaps(&p).is_empty(), "{:?}", overlaps(&p));
         // the podium itself is no obstacle
         assert_eq!(walk_colliders(&p).len(), 4 + 1); // walls + table, not the podium
+    }
+
+    #[test]
+    fn overlap_ok_items_are_not_flagged_against_furniture() {
+        let mut p = Project::new(Uuid::new_v4(), "t");
+        p.floors[0] = room();
+        let table = FurnitureInstance {
+            id: Uuid::new_v4(),
+            asset: Uuid::new_v4(),
+            name: "Tisch".into(),
+            pos_mm: [2000, 2000, 0],
+            rotation_deg: 0.0,
+            dims_mm: [1600, 900, 750],
+            material: None,
+            walkable: false,
+            overlap_ok: false,
+        };
+        let chair = FurnitureInstance { id: Uuid::new_v4(), name: "Stuhl".into(), pos_mm: [2000, 2400, 0], dims_mm: [450, 520, 850], ..table.clone() };
+        p.furniture = vec![table, chair.clone()];
+        assert_eq!(overlaps(&p).len(), 2);
+        p.furniture[1].overlap_ok = true;
+        assert!(overlaps(&p).is_empty(), "{:?}", overlaps(&p));
     }
 
     #[test]
