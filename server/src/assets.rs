@@ -130,6 +130,28 @@ pub struct PrimitiveBody {
     dims_mm: Option<[u32; 3]>,
 }
 
+/// New (not yet stored) library asset for a primitive shape with default dims.
+pub fn primitive_template(shape: PrimitiveShape) -> Asset {
+    Asset {
+        id: Uuid::new_v4(),
+        kind: AssetKind::Primitive,
+        name: shape.label_de().to_string(),
+        dims_mm: shape.default_dims(),
+        model_url: None,
+        thumbnail_url: None,
+        primitive: Some(shape),
+        ikea: None,
+        light: None,
+        warnings: vec![],
+        created_at: now(),
+    }
+}
+
+pub async fn store_asset(st: &AppState, a: &Asset) -> ApiResult<()> {
+    insert(&st.db, a, None).await?;
+    Ok(())
+}
+
 pub async fn create_primitive(State(st): State<AppState>, AppJson(b): AppJson<PrimitiveBody>) -> ApiResult<Json<Asset>> {
     let dims = b.dims_mm.unwrap_or_else(|| b.shape.default_dims());
     if !valid_dims(dims) {

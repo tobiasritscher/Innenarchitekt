@@ -11,6 +11,7 @@ use axum::extract::{Multipart, Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use plan_core::assets::Asset;
+use plan_core::primitives::PrimitiveShape;
 use plan_core::commands::{self, ChainPoint};
 use plan_core::furniture::{clearances, snap_to_wall};
 use plan_core::geom::*;
@@ -266,8 +267,14 @@ The user reviews your proposal before anything is applied, so describe in `answe
 5. Photos of the real apartment → identify floor, wall and ceiling surfaces per room and propose materials with `set_room` (floor/ceiling) \
 and `paint_room_walls` (all wall sides facing that room). Pick the closest library material; use a hex colour only for painted walls. \
 Mention in `answer` what you saw and how sure you are. If a photo cannot be matched to a room, say so.\n\
-6. If the request is unclear or impossible, explain why and return no actions.\n\
-7. `refs` = ids of the elements your answer is about (they get highlighted).";
+6. If something is not in `asset_library`, build it from parametric shapes with `add_primitive` (shape, name, width/depth/height_mm, \
+x/y/z_mm, rotation_deg, material). Use realistic sizes and one action per element, e.g. a kitchen: base cabinets box 600 deep × 870 high \
+(material = front colour, often split into 600 mm units), worktop plate 40 mm at z_mm 870 slightly deeper (620), tall/upper cabinets \
+box 350 deep × 700 high at z_mm 1450 or wardrobe for tall units; dining table + chairs; podest = raised floor with steps (walkable). \
+Shapes against a wall: compute x/y so the back touches the wall's inner face and rotate so the front (+y local) faces into the room, \
+or set snap_to_wall. Rotation 0 = front faces +y (down in plan), 90 = front faces −x, 180 = −y, 270 = +x.\n\
+7. If the request is unclear or impossible, explain why and return no actions.\n\
+8. `refs` = ids of the elements your answer is about (they get highlighted).";
 
 fn schema() -> Value {
     json!({
@@ -286,7 +293,7 @@ fn schema() -> Value {
                             "move_wall", "set_wall_length", "set_wall", "add_wall", "delete_wall", "move_node",
                             "add_opening", "set_opening", "delete_opening",
                             "set_room", "paint_room_walls",
-                            "place_furniture", "move_furniture", "set_furniture", "delete_furniture",
+                            "place_furniture", "add_primitive", "move_furniture", "set_furniture", "delete_furniture",
                             "add_light", "set_light", "delete_light", "set_ceiling_height"
                         ]},
                         "wall": {"type": "string"}, "node": {"type": "string"}, "opening": {"type": "string"},
@@ -307,7 +314,8 @@ fn schema() -> Value {
                         "open_ceiling": {"type": "boolean"}, "material": {"type": "string"},
                         "rotation_deg": {"type": "number"}, "snap_to_wall": {"type": "boolean"},
                         "on": {"type": "boolean"}, "lumen": {"type": "number"}, "kelvin": {"type": "number"},
-                        "light_type": {"type": "string", "enum": ["point", "spot"]}, "ceiling_height_mm": {"type": "number"}
+                        "light_type": {"type": "string", "enum": ["point", "spot"]}, "ceiling_height_mm": {"type": "number"},
+                        "shape": {"type": "string", "enum": ["box", "cylinder", "plate", "sofa", "bed", "table", "chair", "shelf", "wardrobe", "podest"], "description": "add_primitive: parametric placeholder shape"}
                     }
                 }
             }
@@ -327,6 +335,22 @@ fn txt<'a>(a: &'a Value, k: &str) -> Option<&'a str> {
 }
 fn boolean(a: &Value, k: &str) -> Option<bool> {
     a.get(k).and_then(|v| v.as_bool())
+}
+
+fn shape(s: &str) -> Option<PrimitiveShape> {
+    Some(match s.trim().to_lowercase().as_str() {
+        "box" => PrimitiveShape::Box,
+        "cylinder" => PrimitiveShape::Cylinder,
+        "plate" => PrimitiveShape::Plate,
+        "sofa" => PrimitiveShape::Sofa,
+        "bed" => PrimitiveShape::Bed,
+        "table" => PrimitiveShape::Table,
+        "chair" => PrimitiveShape::Chair,
+        "shelf" => PrimitiveShape::Shelf,
+        "wardrobe" => PrimitiveShape::Wardrobe,
+        "podest" | "podium" => PrimitiveShape::Podest,
+        _ => return None,
+    })
 }
 
 fn fmt_m(mm: f64) -> String {
@@ -676,6 +700,41 @@ impl Tr<'_> {
                 self.push(ops)?;
                 Ok(format!("{} platzieren", asset.name))
             }
+            "add_primitive" => {
+                let sh = shape(txt(a, "shape").ok_or("«shape» fehlt")?).ok_or("unbekannte Form")?;
+                let asset = self.cx.assets.iter().find(|x| x.primitive == Some(sh)).cloned().ok_or("Basisform nicht verfügbar")?;
+                let mut dims = sh.default_dims();
+                for (i, k) in ["width_mm", "depth_mm", "height_mm"].iter().enumerate() {
+                    if let Some(v) = num(a, k) {
+                        dims[i] = v.round().clamp(1.0, 50_000.0) as u32;
+                    }
+                }
+                let (mut x, mut y) = (num(a, "x_mm").ok_or("«x_mm» fehlt")?, num(a, "y_mm").ok_or("«y_mm» fehlt")?);
+                let mut rot = num(a, "rotation_deg").unwrap_or(0.0);
+                if boolean(a, "snap_to_wall").unwrap_or(false) {
+                    if let Some(s) = snap_to_wall(self.f(), x, y, dims, rot, 400.0) {
+                        (x, y, rot) = (s.x_mm as f64, s.y_mm as f64, s.rotation_deg as f64);
+                    }
+                }
+                let material = match txt(a, "material") {
+                    Some(m) => Some(self.material(m)?),
+                    None => None,
+                };
+                let name = txt(a, "name").map(str::to_string).unwrap_or_else(|| sh.label_de().to_string());
+                self.push(vec![Op::PutFurniture {
+                    item: FurnitureInstance {
+                        id: Uuid::new_v4(),
+                        asset: asset.id,
+                        name: name.clone(),
+                        pos_mm: [x.round() as i32, y.round() as i32, num(a, "z_mm").unwrap_or(0.0).round().max(0.0) as i32],
+                        rotation_deg: rot.rem_euclid(360.0) as f32,
+                        dims_mm: dims,
+                        material,
+                        walkable: sh.walkable(),
+                    },
+                }])?;
+                Ok(format!("{name} ({}×{}×{} cm)", dims[0] / 10, dims[1] / 10, dims[2] / 10))
+            }
             "move_furniture" | "set_furniture" => {
                 let id = self.id(a, "furniture")?;
                 let mut it = self.p.furniture.iter().find(|x| x.id == id).cloned().ok_or("Möbel nicht gefunden")?;
@@ -931,6 +990,17 @@ pub async fn command(State(st): State<AppState>, Path(project_id): Path<Uuid>, m
         .filter_map(|r| r.try_get::<SqlJson<Asset>, _>("data").ok().map(|j| j.0))
         .collect();
 
+    let mut assets = assets;
+    // Every primitive shape is placeable. Shapes without a library asset get an in-memory one that is only
+    // stored if the proposal actually uses it (see below).
+    let mut virtual_ids = Vec::new();
+    for sh in PrimitiveShape::ALL {
+        if !assets.iter().any(|a| a.primitive == Some(sh)) {
+            let a = crate::assets::primitive_template(sh);
+            virtual_ids.push(a.id);
+            assets.push(a);
+        }
+    }
     let cx = build_ctx(&project, assets, materials);
     let state = state_json(&project, &cx);
     let mut user = String::new();
@@ -952,6 +1022,12 @@ pub async fn command(State(st): State<AppState>, Path(project_id): Path<Uuid>, m
         .await
         .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, format!("KI-Anfrage fehlgeschlagen: {e:#}")))?;
     let out = translate(&project, &cx, &v);
+    for a in cx.assets.iter().filter(|a| virtual_ids.contains(&a.id)) {
+        let used = out.ops.iter().any(|o| matches!(o, Op::PutFurniture { item } if item.asset == a.id));
+        if used {
+            crate::assets::store_asset(&st, a).await?;
+        }
+    }
     tracing::info!(ms = started.elapsed().as_millis() as u64, ops = out.ops.len(), "KI-Befehl");
     Ok(Json(json!({
         "answer": out.answer,
@@ -1029,6 +1105,25 @@ mod tests {
         apply_batch(&mut q, &out.ops).unwrap();
         let painted: usize = q.floors[0].walls.iter().map(|w| (w.finish_left == "paint:sage") as usize + (w.finish_right == "paint:sage") as usize).sum();
         assert_eq!(painted, 4, "one side of each of the room's 4 walls");
+    }
+
+    #[test]
+    fn builds_kitchen_from_primitives() {
+        let p = flat();
+        let assets = vec![crate::assets::primitive_template(PrimitiveShape::Box), crate::assets::primitive_template(PrimitiveShape::Plate)];
+        let cx = build_ctx(&p, assets, vec![("wood:oak-light".into(), "Eiche hell".into())]);
+        let v = json!({"answer": "", "actions": [
+            {"type": "add_primitive", "shape": "box", "name": "Unterschrank", "width_mm": 2400, "depth_mm": 600, "height_mm": 870, "x_mm": 1400, "y_mm": 450, "rotation_deg": 0, "material": "wood:oak-light"},
+            {"type": "add_primitive", "shape": "plate", "name": "Abdeckung", "width_mm": 2400, "depth_mm": 620, "height_mm": 40, "x_mm": 1400, "y_mm": 460, "z_mm": 870},
+            {"type": "add_primitive", "shape": "rocket", "x_mm": 0, "y_mm": 0}
+        ]});
+        let out = translate(&p, &cx, &v);
+        assert_eq!(out.changes.len(), 2, "{:?}", out.warnings);
+        assert_eq!(out.warnings.len(), 1);
+        let mut q = p.clone();
+        apply_batch(&mut q, &out.ops).unwrap();
+        let top = q.furniture.iter().find(|f| f.name == "Abdeckung").unwrap();
+        assert_eq!((top.pos_mm[2], top.dims_mm), (870, [2400, 620, 40]));
     }
 
     #[test]

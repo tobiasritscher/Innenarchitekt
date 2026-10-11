@@ -5,6 +5,7 @@ import { api, type AiResponse } from '../core/api'
 import { MATERIALS } from '../core/materials'
 import { shrinkPhoto } from '../import/image'
 import type { Op } from '../core/generated/Op'
+import { useAssets } from '../state/assets'
 import { useEditor, type Selection } from '../state/editor'
 import { useProject } from '../state/project'
 
@@ -72,6 +73,8 @@ export function AiPanel() {
     setPhotos([])
     try {
       const res = await api.ai(project.id, fd)
+      // proposals may use primitive shapes the server just added to the library
+      if (res.ops.some((o) => o.op === 'PutFurniture')) await useAssets.getState().load().catch(() => {})
       let status: 'preview' | 'info' = 'info'
       if (res.ops.length) {
         if (useProject.getState().setTransient(res.ops as Op[])) status = 'preview'
