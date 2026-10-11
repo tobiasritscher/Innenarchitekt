@@ -189,9 +189,14 @@ pub fn overlaps(p: &Project) -> Vec<Id> {
 
 /// Convex colliders for walking (plan, mm).
 pub fn walk_colliders(p: &Project) -> Vec<Vec<P>> {
+    walk_colliders_closed(p, &Default::default())
+}
+
+/// Walk colliders with the doors in `closed` shut.
+pub fn walk_colliders_closed(p: &Project, closed: &std::collections::HashSet<Id>) -> Vec<Vec<P>> {
     let Some(f) = p.floors.first() else { return vec![] };
     let fps = footprints(f);
-    let mut out: Vec<Vec<P>> = wall_pieces(f, &fps, true).into_iter().map(|w| w.poly).collect();
+    let mut out: Vec<Vec<P>> = crate::walls::wall_pieces_closed(f, &fps, true, closed).into_iter().map(|w| w.poly).collect();
     for item in &p.furniture {
         // low items (rugs) and things hanging above head height don't block
         if item.walkable || item.dims_mm[2] < 150 || item.pos_mm[2] > 1800 {

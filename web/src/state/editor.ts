@@ -42,6 +42,7 @@ export type DrawDefaults = {
   openingKind: 'Door' | 'Window' | 'Passage'
   doorWidthMm: number
   doorHeightMm: number
+  doorGlass: boolean
   windowWidthMm: number
   windowHeightMm: number
   windowSillMm: number
@@ -105,6 +106,7 @@ export const useEditor = create<EditorState>((set) => ({
     openingKind: 'Door',
     doorWidthMm: 900,
     doorHeightMm: 2050,
+    doorGlass: false,
     windowWidthMm: 1200,
     windowHeightMm: 1400,
     windowSillMm: 850,

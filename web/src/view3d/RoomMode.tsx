@@ -16,6 +16,7 @@ import { RendererSetup, cssVar } from './common'
 import { FurniturePanel } from './FurniturePanel'
 import { EditScene, LAMP_LABEL, PlacingHint, recentlyPlaced } from './Preview3D'
 import { RulerButton } from './Ruler3D'
+import { DoorsButton, useDoorIds } from './doors'
 import { useView3D, type LampType } from './store'
 
 /** Focus id of a room: its RoomMeta id, else the derived key. */
@@ -35,6 +36,7 @@ export function RoomMode() {
   const nameOf = (r: DerivedRoom) => (r.meta && names.get(r.meta)) || 'Raum ohne Namen'
   const list = useMemo(() => [...rooms].sort((a, b) => Number(!a.meta) - Number(!b.meta) || b.area_m2 - a.area_m2), [rooms])
   const room = rooms.find((r) => roomId(r) === focus) ?? null
+  const doorIds = useDoorIds(room?.walls ?? [])
 
   // No (or a vanished) focus: the selected room, else the largest one.
   useEffect(() => {
@@ -136,6 +138,7 @@ export function RoomMode() {
           Ansicht zurücksetzen
         </button>
         <RulerButton hotkey />
+        <DoorsButton ids={doorIds} />
       </div>
 
       <div className="v3d-panel v3d-room-panel">
@@ -179,7 +182,7 @@ export function RoomMode() {
       ) : placingLight ? (
         <div className="v3d-overlay v3d-hint">{LAMP_LABEL[placingLight]} platzieren: Stelle an der Decke klicken · Shift = weitere · Esc = abbrechen</div>
       ) : (
-        <div className="v3d-overlay v3d-hint">Ziehen dreht um den Raum · Scrollen zoomt · Möbel ziehen verschiebt · R dreht · Entf löscht · D misst</div>
+        <div className="v3d-overlay v3d-hint">Ziehen dreht um den Raum · Scrollen zoomt · Möbel ziehen verschiebt · R dreht · Entf löscht · Tür anklicken = auf/zu · D misst</div>
       )}
     </div>
   )

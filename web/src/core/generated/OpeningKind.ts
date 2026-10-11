@@ -2,4 +2,8 @@
 import type { Hinge } from "./Hinge";
 import type { Swing } from "./Swing";
 
-export type OpeningKind = { "type": "Door", hinge: Hinge, swing: Swing, } | { "type": "Window", sill_mm: number, } | { "type": "Passage" };
+export type OpeningKind = { "type": "Door", hinge: Hinge, swing: Swing, 
+/**
+ * Glass leaf (all-glass door in a slim frame).
+ */
+glass: boolean, } | { "type": "Window", sill_mm: number, } | { "type": "Passage" };

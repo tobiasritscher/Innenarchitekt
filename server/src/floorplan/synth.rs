@@ -76,7 +76,7 @@ impl Fb {
 }
 
 fn door(h: Hinge, s: Swing) -> OpeningKind {
-    OpeningKind::Door { hinge: h, swing: s }
+    OpeningKind::Door { hinge: h, swing: s, glass: false }
 }
 const WIN: OpeningKind = OpeningKind::Window { sill_mm: 850 };
 
@@ -371,7 +371,7 @@ pub fn render(f: &Floor, mpp: f64, dims: &[(P, P, f64)], seed: u64) -> (RgbImage
                 cv.line(q(s0, -face), q(s0, face), 1.0, LINE);
                 cv.line(q(s1, -face), q(s1, face), 1.0, LINE);
             }
-            OpeningKind::Door { hinge, swing } => {
+            OpeningKind::Door { hinge, swing, .. } => {
                 let side = if swing == Swing::Left { 1.0 } else { -1.0 };
                 let (hs, other) = if hinge == Hinge::Start { (s0, s1) } else { (s1, s0) };
                 let hp = q(hs, side * t / 2.0);
@@ -432,7 +432,7 @@ pub fn mock_semantics(case: &SynthCase) -> Semantics {
         let width = o.width_mm as f64 / case.mm_per_px * shift.2;
         match o.kind {
             OpeningKind::Window { .. } => s.windows.push(SemWindow { pos: px(c), width }),
-            OpeningKind::Door { hinge, swing } => {
+            OpeningKind::Door { hinge, swing, .. } => {
                 let hs = if hinge == Hinge::Start { o.offset_mm as f64 } else { (o.offset_mm + o.width_mm) as f64 };
                 let side = if swing == Swing::Left { 1.0 } else { -1.0 };
                 let into = add(c, mul(left_normal(d), side * 600.0));

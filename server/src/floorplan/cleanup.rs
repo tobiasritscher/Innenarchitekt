@@ -795,7 +795,7 @@ fn hinge_point(o: &Opening, a: P, d: P) -> Option<P> {
 fn door_kind(hinge: Option<P>, into: Option<P>, a: P, d: P, center_t: f64) -> OpeningKind {
     let h = hinge.map(|h| if dot(sub(h, a), d) <= center_t { Hinge::Start } else { Hinge::End }).unwrap_or(Hinge::Start);
     let s = into.map(|q| if dot(sub(q, a), left_normal(d)) > 0.0 { Swing::Left } else { Swing::Right }).unwrap_or(Swing::Left);
-    OpeningKind::Door { hinge: h, swing: s }
+    OpeningKind::Door { hinge: h, swing: s, glass: false }
 }
 
 #[cfg(test)]

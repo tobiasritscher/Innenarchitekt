@@ -256,13 +256,15 @@ export function EditScene({ cutWalls = false, room = null }: { cutWalls?: boolea
 
   const furniturePick = useMemo(() => ({ ...pick, onDown }), [pick, onDown])
   const lightPick = useMemo(() => ({ ...pick, onDown: onLightDown }), [pick, onLightDown])
-  /** Room mode edits only furniture and lamps: clicking the building just clears the selection. */
+  /** Room mode edits only furniture and lamps: clicking a door opens/shuts it, the rest clears the selection. */
   const buildingPick: PickHandlers = useMemo(
     () => ({
-      onClick: (e) => {
+      onClick: (e, s) => {
         e.stopPropagation()
         if (e.delta > 5 || useEditor.getState().placingAsset || recentlyPlaced() || toolActive()) return
-        useEditor.getState().select(null)
+        const door = s.kind === 'opening' && useProject.getState().project?.floors[0].openings.some((o) => o.id === s.id && o.kind.type === 'Door')
+        if (door) useView3D.getState().toggleDoor(s.id)
+        else useEditor.getState().select(null)
       },
     }),
     [],

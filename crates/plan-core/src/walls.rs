@@ -136,6 +136,11 @@ pub struct WallPiece {
 /// Split wall footprints at openings. If `walk` is true, only pieces that block
 /// walking are returned (windows block, doors/passages don't).
 pub fn wall_pieces(f: &Floor, fps: &[WallFootprint], walk: bool) -> Vec<WallPiece> {
+    wall_pieces_closed(f, fps, walk, &Default::default())
+}
+
+/// Like [`wall_pieces`]; for walking, the openings in `closed` (shut doors) block like wall.
+pub fn wall_pieces_closed(f: &Floor, fps: &[WallFootprint], walk: bool, closed: &std::collections::HashSet<Id>) -> Vec<WallPiece> {
     let mut out = Vec::new();
     for fp in fps {
         let Some(w) = f.wall(fp.wall) else { continue };
@@ -180,7 +185,7 @@ pub fn wall_pieces(f: &Floor, fps: &[WallFootprint], walk: bool) -> Vec<WallPiec
             let sill = o.kind.sill_mm() as f64;
             let top = (sill + o.height_mm as f64).min(h);
             if walk {
-                if !o.kind.walkable() {
+                if !o.kind.walkable() || closed.contains(&o.id) {
                     push(slab(s, e), 0.0, h);
                 }
             } else {

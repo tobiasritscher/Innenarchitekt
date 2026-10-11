@@ -127,7 +127,13 @@ pub enum Swing {
 #[serde(tag = "type")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub enum OpeningKind {
-    Door { hinge: Hinge, swing: Swing },
+    Door {
+        hinge: Hinge,
+        swing: Swing,
+        /// Glass leaf (all-glass door in a slim frame).
+        #[serde(default)]
+        glass: bool,
+    },
     Window { sill_mm: u32 },
     Passage,
 }

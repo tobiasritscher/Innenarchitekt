@@ -306,7 +306,7 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
         height_mm: kind === 'Window' ? draw.windowHeightMm : draw.doorHeightMm,
         kind:
           kind === 'Door'
-            ? { type: 'Door', hinge: openingFlip.hinge, swing: openingFlip.swing }
+            ? { type: 'Door', hinge: openingFlip.hinge, swing: openingFlip.swing, glass: draw.doorGlass }
             : kind === 'Window'
               ? { type: 'Window', sill_mm: draw.windowSillMm }
               : { type: 'Passage' },

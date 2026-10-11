@@ -245,7 +245,7 @@ function OpeningProps({ src, o, onDelete }: { src: PlanSource; o: Opening; onDel
   const f = src.project.floors[0]
   const put = (n: Opening, label: string) => src.commit([{ op: 'PutOpening', floor: f.id, opening: n }], label)
   const setKind = (t: OpeningKind['type']) => {
-    const kind: OpeningKind = t === 'Door' ? { type: 'Door', hinge: 'Start', swing: 'Left' } : t === 'Window' ? { type: 'Window', sill_mm: 850 } : { type: 'Passage' }
+    const kind: OpeningKind = t === 'Door' ? { type: 'Door', hinge: 'Start', swing: 'Left', glass: false } : t === 'Window' ? { type: 'Window', sill_mm: 850 } : { type: 'Passage' }
     const height = t === 'Window' ? Math.min(o.height_mm, 1400) : Math.max(o.height_mm, 2000)
     put({ ...o, kind, height_mm: height }, 'Öffnungsart ändern')
   }
@@ -273,6 +273,10 @@ function OpeningProps({ src, o, onDelete }: { src: PlanSource; o: Opening; onDel
             <Seg value={o.kind.swing} options={[['Left', 'links'], ['Right', 'rechts']]} onChange={(s) => o.kind.type === 'Door' && put({ ...o, kind: { ...o.kind, swing: s } }, 'Türanschlag ändern')} />
           </div>
           <button onClick={() => put(flipDoor(o)!, 'Türanschlag ändern')}>Anschlag wechseln (F)</button>
+          <div className="field">
+            Ausführung
+            <Seg value={o.kind.glass ? 'glass' : 'solid'} options={[['solid', 'Vollblatt'], ['glass', 'Glas']]} onChange={(v) => o.kind.type === 'Door' && put({ ...o, kind: { ...o.kind, glass: v === 'glass' } }, v === 'glass' ? 'Glastür' : 'Vollblatt-Tür')} />
+          </div>
         </>
       )}
     </Section>

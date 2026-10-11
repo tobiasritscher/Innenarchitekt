@@ -24,6 +24,7 @@ import { Joystick, MiniMap } from './MiniMap'
 import { PathTraceHost, PathTraceOverlay, usePathTrace } from './PathTrace'
 import { Ruler3D, RulerButton } from './Ruler3D'
 import { WalkControls } from './WalkControls'
+import { DoorsButton, useDoorCollision, useDoorIds, useDoorKey } from './doors'
 
 const NO_LIGHTS: Light[] = []
 const NO_SCENES: LightScene[] = []
@@ -36,6 +37,9 @@ export function ViewMode() {
   const dpr = Math.min(q.dpr, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
   const coarse = useMemo(() => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches, [])
   const tracing = usePathTrace((s) => s.active)
+  const doors = useDoorIds()
+  useDoorCollision()
+  useDoorKey(nav === 'walk')
 
   useEffect(() => setWallCut(null), [])
   // leaving view mode ends a running render
@@ -65,13 +69,12 @@ export function ViewMode() {
       <ViewPanel glRef={glRef} />
       <PathTraceOverlay onSave={() => saveCanvasPng(glRef.current, 'Foto')} />
       <MiniMap />
-      {nav === 'dollhouse' && (
-        <div className="v3d-overlay v3d-preview-tools">
-          <RulerButton hotkey />
-        </div>
-      )}
+      <div className="v3d-overlay v3d-preview-tools">
+        {nav === 'dollhouse' && <RulerButton hotkey />}
+        <DoorsButton ids={doors} />
+      </div>
       {nav === 'walk' && coarse && <Joystick />}
-      {nav === 'walk' && !coarse && <div className="v3d-overlay v3d-hint v3d-walk-hint">Klicken zum Umsehen · WASD/Pfeiltasten gehen · Shift schneller · Esc gibt die Maus frei</div>}
+      {nav === 'walk' && !coarse && <div className="v3d-overlay v3d-hint v3d-walk-hint">Klicken zum Umsehen · WASD/Pfeiltasten gehen · Shift schneller · E Tür auf/zu · Esc gibt die Maus frei</div>}
     </div>
   )
 }

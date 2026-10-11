@@ -203,7 +203,7 @@ pub(crate) fn state_json(p: &Project, cx: &Ctx) -> Value {
                 "width": o.width_mm, "height": o.height_mm,
             });
             match o.kind {
-                OpeningKind::Door { hinge, swing } => {
+                OpeningKind::Door { hinge, swing, .. } => {
                     v["type"] = json!("door");
                     v["hinge"] = json!(if hinge == Hinge::Start { "a" } else { "b" });
                     v["swing"] = json!(if swing == Swing::Left { "left" } else { "right" });
@@ -554,9 +554,9 @@ impl Tr<'_> {
                     (Some("passage"), _) => OpeningKind::Passage,
                     (None, Some(k)) => k,
                     _ => {
-                        let (h0, s0) = match prev_kind {
-                            Some(OpeningKind::Door { hinge, swing }) => (hinge, swing),
-                            _ => (Hinge::Start, Swing::Left),
+                        let (h0, s0, glass) = match prev_kind {
+                            Some(OpeningKind::Door { hinge, swing, glass }) => (hinge, swing, glass),
+                            _ => (Hinge::Start, Swing::Left, false),
                         };
                         let hinge = match txt(a, "hinge") {
                             Some("a") => Hinge::Start,
@@ -568,7 +568,7 @@ impl Tr<'_> {
                             Some("right") => Swing::Right,
                             _ => s0,
                         };
-                        OpeningKind::Door { hinge, swing }
+                        OpeningKind::Door { hinge, swing, glass }
                     }
                 };
                 let def_w = match kind {

@@ -94,7 +94,7 @@ function buildProject() {
   const midH = { ...W(N.h, N.d, 120, false, 'paint:greige', 'tile:white'), height_mm: 1100 } // half-height wall
   const walls = [north1, north2, east1, east2, south1, south2, west, midV1, midV2, midH]
   const win = (wall: { id: string }, offset: number, w: number, h = 1500, sill = 800) => ({ id: id(), wall: wall.id, kind: { type: 'Window', sill_mm: sill }, offset_mm: offset, width_mm: w, height_mm: h })
-  const door = (wall: { id: string }, offset: number, hinge: 'Start' | 'End', swing: 'Left' | 'Right', w = 900) => ({ id: id(), wall: wall.id, kind: { type: 'Door', hinge, swing }, offset_mm: offset, width_mm: w, height_mm: 2050 })
+  const door = (wall: { id: string }, offset: number, hinge: 'Start' | 'End', swing: 'Left' | 'Right', w = 900) => ({ id: id(), wall: wall.id, kind: { type: 'Door', hinge, swing, glass: false }, offset_mm: offset, width_mm: w, height_mm: 2050 })
   const openings = [
     win(south2, 800, 1800, 2100, 200), // living, south (french window)
     win(south2, 3600, 1500), // living, south

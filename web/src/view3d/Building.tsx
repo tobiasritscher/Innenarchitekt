@@ -1,7 +1,7 @@
 // Walls, floors, ceilings and openings from the core's scene meshes (shared by preview and view mode).
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { BoxGeometry, DoubleSide, MeshBasicMaterial, PlaneGeometry, type BufferGeometry, type Group, type Material } from 'three'
-import { useFrame, type ThreeEvent } from '@react-three/fiber'
+import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useSceneMeshes } from '../core/derived'
 import type { DerivedRoom } from '../core/generated/DerivedRoom'
 import { pointInPolygon } from '../editor2d/geom'
@@ -13,6 +13,7 @@ import { useEditor, type Selection } from '../state/editor'
 import { useFloor } from '../state/project'
 import { GeometryCache } from './geometry'
 import { mats, surfaceMaterial, wallClip } from './materials3d'
+import { useView3D } from './store'
 
 /** Ceiling rendering: not at all, only into shadow maps (layer 1), or visible. */
 export type CeilingMode = 'none' | 'shadow' | 'visible'
@@ -232,6 +233,33 @@ function Ceiling({ geo, material, visible }: { geo: BufferGeometry; material: Ma
 
 const CEILING_SLAB_M = 0.3
 
+/** Door leaf turning about its hinge: `open` angle (rad) when open, 0 when shut (state in useView3D). */
+function DoorLeaf({ id, open, position, children }: { id: string; open: number; position: [number, number, number]; children: ReactNode }) {
+  const ref = useRef<Group>(null)
+  const isOpen = useView3D((s) => s.doorOpen[id] ?? true)
+  const invalidate = useThree((s) => s.invalidate)
+  // initial pose only; later changes animate in useFrame
+  const [initial] = useState<[number, number, number]>(() => [0, isOpen ? open : 0, 0])
+  useEffect(() => invalidate(), [isOpen, invalidate])
+  useFrame((state, dt) => {
+    const g = ref.current
+    if (!g) return
+    const target = isOpen ? open : 0
+    const d = target - g.rotation.y
+    if (Math.abs(d) < 1e-3) {
+      g.rotation.y = target
+      return
+    }
+    g.rotation.y += d * (1 - Math.exp(-Math.min(dt, 0.1) * 9))
+    state.invalidate()
+  })
+  return (
+    <group ref={ref} position={position} rotation={initial}>
+      {children}
+    </group>
+  )
+}
+
 /** A box from the shared unit geometry. */
 function Box({ p, s, material, cast = true, ...rest }: { p: [number, number, number]; s: [number, number, number]; material: Material; cast?: boolean } & Record<string, unknown>) {
   return <mesh geometry={unitBox} material={material} position={p} scale={s} castShadow={cast} receiveShadow {...rest} />
@@ -271,16 +299,29 @@ function OpeningMesh({ o, pick, selected, hovered }: { o: OpeningPlacement; pick
     const leafW = w - 2 * f - 0.006
     const angle = ((start ? -sideSign : sideSign) * DOOR_OPEN_DEG * Math.PI) / 180
     const leafH = h - f - 0.01
+    const dir = start ? 1 : -1
+    const glass = o.kind.glass
+    const p = 0.045 // glass door: profile width of the slim leaf frame
     body = (
       <>
         <Box p={[-w / 2 + f / 2, h / 2, 0]} s={[f, h, trim]} material={frame} {...pp} />
         <Box p={[w / 2 - f / 2, h / 2, 0]} s={[f, h, trim]} material={frame} {...pp} />
         <Box p={[0, h - f / 2, 0]} s={[w, f, trim]} material={frame} {...pp} />
-        <group position={[hingeX, 0.005, sideSign * (t / 2 - leafT / 2)]} rotation={[0, angle, 0]}>
-          <Box p={[(start ? 1 : -1) * (leafW / 2), leafH / 2, 0]} s={[leafW, leafH, leafT]} material={mats.doorLeaf()} {...pp} />
+        <DoorLeaf id={o.opening} open={angle} position={[hingeX, 0.005, sideSign * (t / 2 - leafT / 2)]}>
+          {glass ? (
+            <>
+              <Box p={[dir * (p / 2), leafH / 2, 0]} s={[p, leafH, leafT]} material={frame} {...pp} />
+              <Box p={[dir * (leafW - p / 2), leafH / 2, 0]} s={[p, leafH, leafT]} material={frame} {...pp} />
+              <Box p={[dir * (leafW / 2), p / 2, 0]} s={[leafW, p, leafT]} material={frame} {...pp} />
+              <Box p={[dir * (leafW / 2), leafH - p / 2, 0]} s={[leafW, p, leafT]} material={frame} {...pp} />
+              <mesh geometry={unitPlane} material={mats.glass()} position={[dir * (leafW / 2), leafH / 2, 0]} scale={[leafW - 2 * p, leafH - 2 * p, 1]} renderOrder={1} {...pp} />
+            </>
+          ) : (
+            <Box p={[dir * (leafW / 2), leafH / 2, 0]} s={[leafW, leafH, leafT]} material={mats.doorLeaf()} {...pp} />
+          )}
           {/* handle */}
-          <Box p={[(start ? 1 : -1) * (leafW - 0.08), 1.05, 0]} s={[0.12, 0.02, leafT + 0.06]} material={frame} cast={false} {...pp} />
-        </group>
+          <Box p={[dir * (leafW - 0.08), 1.05, 0]} s={[0.12, 0.02, leafT + 0.06]} material={frame} cast={false} {...pp} />
+        </DoorLeaf>
       </>
     )
   }

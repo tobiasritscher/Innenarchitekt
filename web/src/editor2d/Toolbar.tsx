@@ -104,7 +104,15 @@ function ToolOptions({ tool }: { tool: Tool }) {
             <LengthField label="Höhe" valueMm={draw.doorHeightMm} onCommit={(v) => setDraw({ doorHeightMm: v })} />
           </>
         )}
-        {k === 'Door' && <p className="muted small">F = Anschlag wechseln</p>}
+        {k === 'Door' && (
+          <>
+            <label className="check">
+              <input type="checkbox" checked={draw.doorGlass} onChange={(e) => setDraw({ doorGlass: e.target.checked })} />
+              Glastür
+            </label>
+            <p className="muted small">F = Anschlag wechseln</p>
+          </>
+        )}
       </div>
     )
   }

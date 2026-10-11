@@ -161,12 +161,12 @@ export function deleteOps(src: PlanSource, sel: NonNullable<Selection>): [Op[], 
 /** Flip a door: cycles swing, then hinge (4 states). */
 export function flipDoor(o: Opening): Opening | null {
   if (o.kind.type !== 'Door') return null
-  const { hinge, swing } = o.kind
+  const { hinge, swing, glass } = o.kind
   const next =
     swing === 'Left'
       ? { hinge, swing: 'Right' as const }
       : { hinge: hinge === 'Start' ? ('End' as const) : ('Start' as const), swing: 'Left' as const }
-  return { ...o, kind: { type: 'Door', ...next } }
+  return { ...o, kind: { type: 'Door', ...next, glass } }
 }
 
 export function newRoomMeta(anchor: Vec, n: number, floorMaterial = 'wood:oak'): RoomMeta {

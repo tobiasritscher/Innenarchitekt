@@ -22,6 +22,8 @@ type View3DState = {
   roomFit: number
   /** 3D ruler active. */
   ruler: boolean
+  /** Door state (view only, not saved): missing = open. */
+  doorOpen: Record<string, boolean>
   /** Room mode: lamp type being placed by clicking (ceiling mounted). */
   placingLight: LampType | null
   setCutWalls: (v: boolean) => void
@@ -30,6 +32,8 @@ type View3DState = {
   requestRoomFit: () => void
   setRuler: (v: boolean) => void
   setPlacingLight: (t: LampType | null) => void
+  toggleDoor: (id: string) => void
+  setDoors: (ids: string[], open: boolean) => void
 }
 
 export const useView3D = create<View3DState>((set) => ({
@@ -39,11 +43,14 @@ export const useView3D = create<View3DState>((set) => ({
   roomFit: 0,
   ruler: false,
   placingLight: null,
+  doorOpen: {},
   setCutWalls: (cutWalls) => set({ cutWalls }),
   setWalker: (walker) => set({ walker }),
   setGhost: (ghost) => set({ ghost }),
   requestRoomFit: () => set((s) => ({ roomFit: s.roomFit + 1 })),
   setRuler: (ruler) => set(ruler ? { ruler, placingLight: null } : { ruler }),
+  toggleDoor: (id) => set((s) => ({ doorOpen: { ...s.doorOpen, [id]: !(s.doorOpen[id] ?? true) } })),
+  setDoors: (ids, open) => set((s) => ({ doorOpen: { ...s.doorOpen, ...Object.fromEntries(ids.map((i) => [i, open])) } })),
   setPlacingLight: (placingLight) => set(placingLight ? { placingLight, ruler: false } : { placingLight }),
 }))
 

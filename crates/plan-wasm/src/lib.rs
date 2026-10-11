@@ -38,13 +38,15 @@ pub fn start() {
 pub struct PlanEngine {
     project: Project,
     colliders: Option<Vec<Vec<P>>>,
+    /// Shut doors (view state) block walking.
+    closed_doors: std::collections::HashSet<Id>,
 }
 
 #[wasm_bindgen]
 impl PlanEngine {
     #[wasm_bindgen(constructor)]
     pub fn new(project: JsValue) -> Result<PlanEngine, JsError> {
-        Ok(PlanEngine { project: from_js(project)?, colliders: None })
+        Ok(PlanEngine { project: from_js(project)?, colliders: None, closed_doors: Default::default() })
     }
 
     pub fn project(&self) -> Result<JsValue, JsError> {
@@ -143,10 +145,18 @@ impl PlanEngine {
     pub fn floor_height_at(&self, x: f64, y: f64, except: &str) -> f64 {
         furniture::floor_height_at(&self.project, [x, y], Id::parse_str(except).ok())
     }
+    /// Doors that are shut (ids); they block walking until opened again.
+    pub fn set_closed_doors(&mut self, ids: JsValue) -> Result<(), JsError> {
+        let ids: Vec<String> = from_js(ids)?;
+        self.closed_doors = ids.iter().filter_map(|s| Id::parse_str(s).ok()).collect();
+        self.colliders = None;
+        Ok(())
+    }
+
     /// Move the walker (plan mm). Returns [x, y].
     pub fn walk_move(&mut self, x: f64, y: f64, dx: f64, dy: f64, radius: f64) -> Vec<f64> {
         if self.colliders.is_none() {
-            self.colliders = Some(furniture::walk_colliders(&self.project));
+            self.colliders = Some(furniture::walk_colliders_closed(&self.project, &self.closed_doors));
         }
         let p = furniture::walk_move(self.colliders.as_ref().unwrap(), [x, y], [dx, dy], radius);
         vec![p[0], p[1]]
