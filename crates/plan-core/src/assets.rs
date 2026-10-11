@@ -11,6 +11,8 @@ pub enum AssetKind {
     Ikea,
     Upload,
     Primitive,
+    /// Generated from a photo (TRELLIS.2).
+    Photo,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

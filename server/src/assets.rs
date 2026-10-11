@@ -31,6 +31,7 @@ fn kind_str(k: AssetKind) -> &'static str {
         AssetKind::Ikea => "Ikea",
         AssetKind::Upload => "Upload",
         AssetKind::Primitive => "Primitive",
+        AssetKind::Photo => "Photo",
     }
 }
 
@@ -152,7 +153,7 @@ pub async fn create_primitive(State(st): State<AppState>, AppJson(b): AppJson<Pr
     Ok(Json(a))
 }
 
-fn parse_dim(s: &str, label: &str) -> ApiResult<Option<u32>> {
+pub fn parse_dim(s: &str, label: &str) -> ApiResult<Option<u32>> {
     let s = s.trim();
     if s.is_empty() {
         return Ok(None);
@@ -183,6 +184,16 @@ pub async fn upload(State(st): State<AppState>, mut mp: Multipart) -> ApiResult<
         }
     }
     let file = file.ok_or_else(|| ApiError::unprocessable("Feld «file» fehlt"))?;
+    let name = name
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .or_else(|| fname.map(|f| f.trim_end_matches(".glb").trim_end_matches(".GLB").to_string()))
+        .unwrap_or_else(|| "Eigenes Modell".into());
+    Ok(Json(create_glb_asset(&st, file.to_vec(), name, dims, AssetKind::Upload, None).await?))
+}
+
+/// Store a GLB as a library asset, scaled to `dims` (missing dims from the model's bounding box).
+pub async fn create_glb_asset(st: &AppState, file: Vec<u8>, name: String, dims: [Option<u32>; 3], kind: AssetKind, thumbnail_url: Option<String>) -> ApiResult<Asset> {
     if !glb::is_glb(&file) {
         return Err(ApiError::unprocessable("Keine GLB-Datei (binäres glTF 2.0 erwartet)"));
     }
@@ -206,20 +217,15 @@ pub async fn upload(State(st): State<AppState>, mut mp: Multipart) -> ApiResult<
             ));
         }
     }
-    let name = name
-        .map(|n| n.trim().to_string())
-        .filter(|n| !n.is_empty())
-        .or_else(|| fname.map(|f| f.trim_end_matches(".glb").trim_end_matches(".GLB").to_string()))
-        .unwrap_or_else(|| "Eigenes Modell".into());
     let id = Uuid::new_v4();
-    put_model(&st, id, file.to_vec()).await?;
+    put_model(st, id, file).await?;
     let a = Asset {
         id,
-        kind: AssetKind::Upload,
+        kind,
         name,
         dims_mm: final_dims,
         model_url: Some(format!("/api/assets/{id}/model.glb")),
-        thumbnail_url: None,
+        thumbnail_url,
         primitive: None,
         ikea: None,
         light: None,
@@ -227,7 +233,7 @@ pub async fn upload(State(st): State<AppState>, mut mp: Multipart) -> ApiResult<
         created_at: now(),
     };
     insert(&st.db, &a, None).await?;
-    Ok(Json(a))
+    Ok(a)
 }
 
 #[derive(Deserialize)]

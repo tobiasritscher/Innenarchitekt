@@ -1936,3 +1936,32 @@ circle.ref-line {
   font-size: 13px;
   box-sizing: border-box;
 }
+
+/* Möbel aus Foto */
+.v3d-photo-preview {
+  max-width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.v3d-photo-job {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 6px 0;
+}
+.v3d-photo-job img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex: none;
+}
+.v3d-photo-job > div {
+  flex: 1;
+  min-width: 0;
+}
+.v3d-photo-job progress {
+  width: 100%;
+}

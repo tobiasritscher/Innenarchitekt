@@ -48,13 +48,14 @@ async fn spawn() -> Option<TestServer> {
         ikea_country: "ch".into(),
         ikea_lang: "de".into(),
         ikea_rotera_client_id: crate::config::DEFAULT_ROTERA_CLIENT_ID.into(),
+        photo3d_dir: None,
     };
     std::fs::create_dir_all(dir.join("web/assets")).unwrap();
     std::fs::write(dir.join("web/index.html"), "<!doctype html><title>IA</title>").unwrap();
     std::fs::write(dir.join("web/assets/app-123.js"), "console.log(1)").unwrap();
     let (tx, rx) = watch::channel(false);
     let st = crate::build_state(cfg, db, rx).unwrap();
-    tokio::spawn(crate::jobs::worker(st.clone()));
+    tokio::spawn(crate::jobs::worker(st.clone(), &[crate::jobs::KIND_FLOORPLAN]));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, crate::router(st)).await });

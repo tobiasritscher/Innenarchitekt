@@ -24,6 +24,7 @@ use crate::floorplan::{self, AnalyzeInput};
 use crate::state::AppState;
 
 pub const KIND_FLOORPLAN: &str = "floorplan";
+pub const KIND_PHOTO3D: &str = "photo3d";
 const JOB_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Serialize, Clone, Debug)]
@@ -143,7 +144,7 @@ pub async fn events(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResu
     Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
-fn sniff_image(b: &[u8]) -> Option<&'static str> {
+pub fn sniff_image(b: &[u8]) -> Option<&'static str> {
     if b.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
         Some("png")
     } else if b.starts_with(&[0xFF, 0xD8, 0xFF]) {
@@ -193,25 +194,29 @@ pub async fn upload_floorplan(State(st): State<AppState>, Path(project_id): Path
         .bind(SqlJson(&payload))
         .execute(&st.db)
         .await?;
-    st.job_notify.notify_one();
+    st.job_notify.notify_waiters();
     Ok(Json(json!({ "job_id": job_id })))
 }
 
 // ---------- Worker ----------
 
-pub async fn recover_stuck(db: &PgPool) -> Result<u64, sqlx::Error> {
-    let r = sqlx::query("UPDATE jobs SET status = 'queued', progress = 0, message = 'Nach Neustart erneut eingereiht', updated_at = now() WHERE status = 'running'")
+pub async fn recover_stuck(db: &PgPool, kinds: &[&str]) -> Result<u64, sqlx::Error> {
+    let kinds: Vec<String> = kinds.iter().map(|k| k.to_string()).collect();
+    let r = sqlx::query("UPDATE jobs SET status = 'queued', progress = 0, message = 'Nach Neustart erneut eingereiht', updated_at = now() WHERE status = 'running' AND kind = ANY($1)")
+        .bind(&kinds)
         .execute(db)
         .await?;
     Ok(r.rows_affected())
 }
 
-async fn claim(db: &PgPool) -> Result<Option<(Job, Value)>, sqlx::Error> {
+async fn claim(db: &PgPool, kinds: &[&str]) -> Result<Option<(Job, Value)>, sqlx::Error> {
+    let kinds: Vec<String> = kinds.iter().map(|k| k.to_string()).collect();
     let row = sqlx::query(&format!(
-        "UPDATE jobs SET status = 'running', progress = 0, message = 'Analyse startet …', updated_at = now()
-         WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
+        "UPDATE jobs SET status = 'running', progress = 0, message = 'Startet …', updated_at = now()
+         WHERE id = (SELECT id FROM jobs WHERE status = 'queued' AND kind = ANY($1) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
          RETURNING {JOB_COLS}, payload"
     ))
+    .bind(&kinds)
     .fetch_optional(db)
     .await?;
     match row {
@@ -223,8 +228,9 @@ async fn claim(db: &PgPool) -> Result<Option<(Job, Value)>, sqlx::Error> {
     }
 }
 
-pub async fn worker(st: AppState) {
-    match recover_stuck(&st.db).await {
+/// One worker loop per queue: long photo jobs must not block floor plan analyses.
+pub async fn worker(st: AppState, kinds: &'static [&'static str]) {
+    match recover_stuck(&st.db, kinds).await {
         Ok(n) if n > 0 => tracing::info!("{n} hängende Jobs erneut eingereiht"),
         Ok(_) => {}
         Err(e) => tracing::error!("Job-Recovery fehlgeschlagen: {e}"),
@@ -234,7 +240,7 @@ pub async fn worker(st: AppState) {
         if *shutdown.borrow() {
             break;
         }
-        match claim(&st.db).await {
+        match claim(&st.db, kinds).await {
             Ok(Some((job, payload))) => {
                 let _ = st.jobs_tx.send(job.clone());
                 tracing::info!(job = %job.id, kind = %job.kind, "Job gestartet");
@@ -262,6 +268,7 @@ pub async fn worker(st: AppState) {
 async fn run_job(st: &AppState, job: Job, payload: Value) -> Job {
     let outcome = match job.kind.as_str() {
         KIND_FLOORPLAN => run_floorplan(st, job.id, payload).await,
+        KIND_PHOTO3D => crate::photo3d::run(st, job.id, payload).await,
         other => Err(format!("Unbekannter Job-Typ «{other}»")),
     };
     let mut fin = job.clone();

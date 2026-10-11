@@ -54,6 +54,7 @@ fi
 say "Dateien übertragen"
 rsync -az "$BIN" "$HOST:$BASE/bin/innenarchitekt.new"
 rsync -az "$ROOT/deploy/backup.sh" "$HOST:$BASE/bin/backup.sh"
+rsync -az "$ROOT/deploy/photo3d-setup.sh" "$HOST:$BASE/bin/photo3d-setup.sh"
 rsync -az --delete "$ROOT/web/dist/" "$HOST:$BASE/web/"
 ssh "$HOST" "chmod +x '$BASE/bin/innenarchitekt.new' '$BASE/bin/backup.sh' && mv -f '$BASE/bin/innenarchitekt.new' '$BASE/bin/innenarchitekt'"
 

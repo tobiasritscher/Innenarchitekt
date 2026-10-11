@@ -7,6 +7,7 @@ import type { PrimitiveShape } from '../core/generated/PrimitiveShape'
 import { useAssets } from '../state/assets'
 import { useEditor } from '../state/editor'
 import { useProject } from '../state/project'
+import { PhotoTo3D } from './PhotoTo3D'
 
 const SHAPES: { shape: PrimitiveShape; label: string; dims: [number, number, number] }[] = [
   { shape: 'Box', label: 'Box', dims: [500, 500, 500] },
@@ -34,6 +35,10 @@ export function fmtDims(d: [number, number, number] | number[]): string {
 export function FurniturePanel() {
   const loaded = useAssets((s) => s.loaded)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [photoEnabled, setPhotoEnabled] = useState(false)
+  useEffect(() => {
+    api.config().then((c) => setPhotoEnabled(!!c.photo3d_enabled), () => {})
+  }, [])
   useEffect(() => {
     useAssets
       .getState()
@@ -46,6 +51,7 @@ export function FurniturePanel() {
       <IkeaImport />
       <Primitives />
       <GlbUpload />
+      <PhotoTo3D enabled={photoEnabled} />
       <h3>Bibliothek</h3>
       {loadError && <p className="error v3d-small">Bibliothek nicht geladen: {loadError}</p>}
       {!loaded && !loadError ? <p className="muted v3d-small">Lade …</p> : <Library />}

@@ -62,3 +62,15 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
   bmp.close()
   return { blob, url: URL.createObjectURL(blob), width, height, name: file.name, paperMmPerPx: pdf?.paperMmPerPx }
 }
+
+/** Photo → upright JPEG of at most `maxPx` on the long side (EXIF orientation applied). */
+export async function shrinkPhoto(file: Blob, maxPx: number): Promise<Blob> {
+  const bmp = await createImageBitmap(file)
+  const s = Math.min(1, maxPx / Math.max(bmp.width, bmp.height))
+  const c = document.createElement('canvas')
+  c.width = Math.round(bmp.width * s)
+  c.height = Math.round(bmp.height * s)
+  c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height)
+  bmp.close()
+  return canvasToBlob(c, 'image/jpeg', 0.88)
+}

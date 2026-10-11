@@ -61,7 +61,18 @@ Gelesen aus der Umgebung bzw. aus `.env` im Arbeitsverzeichnis.
 | `LLM_MODEL` | `claude-opus-5-5` | Modellname |
 | `IKEA_COUNTRY` / `IKEA_LANG` | `ch` / `de` | Markt für IKEA-Import (bei Links wird der Markt aus der URL genommen) |
 | `IKEA_ROTERA_CLIENT_ID` | IKEA-Web-Default | Client-ID der IKEA-3D-Viewer-API, nur falls IKEA sie ändert |
+| `PHOTO3D_DIR` | – | trellis-mac-Checkout für «Möbel aus Foto» (TRELLIS.2, nativ auf Apple Silicon); fehlt → Funktion aus. Einrichten mit `deploy/photo3d-setup.sh` |
 | `RUST_LOG` | `innenarchitekt=info,tower_http=info,sqlx=warn` | Log-Level |
+
+### Möbel aus Foto (TRELLIS.2)
+
+Läuft nativ auf dem Server (Docker hat keinen Metal-Zugriff): `bash ~/innenarchitekt/bin/photo3d-setup.sh` klont
+[trellis-mac](https://github.com/shivampkumar/trellis-mac), legt ein Python-3.11-venv an und patcht das Dreiecksziel
+(`IA_TARGET_FACES`, wir nehmen 50'000). Die Gewichte (~15 GB) landen beim ersten Lauf in `~/.cache/huggingface`;
+DINOv3 und RMBG-2.0 sind «gated» → einmal mit dem HF-Konto des Tokens Zugriff anfordern. RMBG-2.0 ist CC BY-NC
+(nur privat). Metal-Beschleunigung braucht Xcode + Metal Toolchain (`DEVELOPER_DIR=/Applications/Xcode.app/…`,
+`xcodebuild -downloadComponent MetalToolchain`), Eigen (`brew install eigen`) und `-std=c++20` in den
+`deps/*/setup.py` (Torch ≥ 2.14); sonst langsamerer Python-Baker. Pro Modell ca. 5–10 Min., eigene Job-Queue.
 
 ## Deployment (Mac «jarvis»)
 

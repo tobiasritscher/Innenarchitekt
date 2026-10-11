@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type AiResponse } from '../core/api'
 import { MATERIALS } from '../core/materials'
+import { shrinkPhoto } from '../import/image'
 import type { Op } from '../core/generated/Op'
 import { useEditor, type Selection } from '../state/editor'
 import { useProject } from '../state/project'
@@ -20,17 +21,6 @@ const EXAMPLES = [
 ]
 
 const PHOTO_MAX_PX = 1568
-
-async function shrinkPhoto(file: File): Promise<Blob> {
-  const bmp = await createImageBitmap(file)
-  const s = Math.min(1, PHOTO_MAX_PX / Math.max(bmp.width, bmp.height))
-  const c = document.createElement('canvas')
-  c.width = Math.round(bmp.width * s)
-  c.height = Math.round(bmp.height * s)
-  c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height)
-  bmp.close()
-  return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('Foto konnte nicht gelesen werden'))), 'image/jpeg', 0.85))
-}
 
 function discardPreview(msgs: Msg[]): Msg[] {
   const st = useProject.getState()
@@ -111,7 +101,7 @@ export function AiPanel() {
     const add: { blob: Blob; url: string }[] = []
     for (const f of Array.from(files).slice(0, 6 - photos.length)) {
       try {
-        const blob = await shrinkPhoto(f)
+        const blob = await shrinkPhoto(f, PHOTO_MAX_PX)
         add.push({ blob, url: URL.createObjectURL(blob) })
       } catch (e) {
         useEditor.getState().showToast(String(e))
