@@ -640,6 +640,19 @@ async fn fetch_rotera(st: &AppState, u: &IkeaUrl, article: &str) -> Option<Roter
     }
 }
 
+/// IKEA's 3D model (GLB) of an article, if there is one.
+pub async fn article_glb(st: &AppState, country: &str, lang: &str, article: &str) -> Option<Vec<u8>> {
+    let u = IkeaUrl { url: String::new(), country: country.into(), lang: lang.into(), article: Some(article.into()) };
+    let m = fetch_rotera(st, &u, article).await?;
+    match download_glb(st, &m.model_url).await {
+        Ok(b) => Some(b),
+        Err(e) => {
+            tracing::warn!(article, "Modell nicht ladbar: {e}");
+            None
+        }
+    }
+}
+
 async fn download_glb(st: &AppState, url: &str) -> Result<Vec<u8>, String> {
     let parsed = reqwest::Url::parse(url).map_err(|_| "ungültige Modell-URL".to_string())?;
     if !parsed.host_str().map(is_ikea_host).unwrap_or(false) {

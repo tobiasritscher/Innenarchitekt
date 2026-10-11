@@ -82,7 +82,8 @@ fn range_label(r: &str) -> String {
 }
 
 pub async fn import(st: &AppState, link: PlannerLink) -> ApiResult<Asset> {
-    let article = format!("VPC-{}", link.code);
+    // «VPC2»: designs assembled from IKEA's article models (older «VPC» imports were boxes only)
+    let article = format!("VPC2-{}", link.code);
     if let Some(a) = crate::assets::find_by_article(&st.db, &article).await? {
         return Ok(a);
     }
@@ -105,16 +106,7 @@ pub async fn import(st: &AppState, link: PlannerLink) -> ApiResult<Asset> {
     }
     let cfg: Value = resp.json().await.map_err(|e| ApiError::unprocessable(format!("Planer-Daten nicht lesbar: {e}")))?;
     let arts = cfg.pointer("/icf/content/articles").and_then(|a| a.as_array()).ok_or_else(|| ApiError::unprocessable("Planer-Design ohne Teileliste (ICF)"))?;
-    let solids = solids(arts);
-    if solids.is_empty() {
-        return Err(ApiError::unprocessable("Im Planer-Design keine darstellbaren Teile gefunden"));
-    }
-    let glb = write_glb(&solids);
-    let mut warnings = vec!["Aus dem IKEA-Planer nachgebaut (vereinfachte Geometrie, Farben aus dem Planer).".to_string()];
-    let parts = arts.len();
-    if parts > 0 {
-        warnings.push(format!("{} Teile, {} Artikel", parts, cfg.pointer("/itemList/item").and_then(|i| i.as_array()).map_or(0, |a| a.len())));
-    }
+    let (glb, warnings) = assemble(st, &link, arts).await?;
     // thumbnail: IKEA's rendering of the design
     let mut thumb = None;
     let mut image_url = None;
@@ -155,6 +147,97 @@ pub async fn import(st: &AppState, link: PlannerLink) -> ApiResult<Asset> {
     crate::assets::insert_ikea(st, a).await
 }
 
+/// Hidden mechanics: never drawn, no model fetched.
+const HIDDEN: &[&str] = &["hinge", "cord", "driver", "power"];
+/// At most this many different articles are fetched per design.
+const MAX_MODELS: usize = 80;
+
+fn article_no(a: &Value) -> Option<String> {
+    let id = a["product_id"].as_str()?.strip_prefix("ART-")?;
+    (id.len() == 8 && id.bytes().all(|b| b.is_ascii_digit())).then(|| id.to_string())
+}
+
+/// Design → one GLB: every article with an IKEA 3D model is placed as that model (centred on its ICF
+/// position, rotated like the part); the others are rebuilt from simple solids as before.
+async fn assemble(st: &AppState, link: &PlannerLink, arts: &[Value]) -> ApiResult<(Vec<u8>, Vec<String>)> {
+    use futures::StreamExt;
+    let by_id: BTreeMap<i64, &Value> = arts.iter().filter_map(|a| Some((a["id"].as_i64()?, a))).collect();
+    let places = places(arts);
+    let visible = |p: &Place| !HIDDEN.iter().any(|h| by_id[&p.id]["category"].as_str().unwrap_or("").to_lowercase().contains(h));
+    let mut wanted: Vec<String> = places.iter().filter(|p| visible(p)).filter_map(|p| article_no(by_id[&p.id])).collect();
+    wanted.sort();
+    wanted.dedup();
+    wanted.truncate(MAX_MODELS);
+    let country = link.retail_unit.to_lowercase();
+    let lang = link.locale.split('-').next().unwrap_or("de").to_string();
+    let fetched: Vec<(String, Option<Vec<u8>>)> = futures::stream::iter(wanted)
+        .map(|art| {
+            let (country, lang) = (country.clone(), lang.clone());
+            async move {
+                let glb = crate::ikea::article_glb(st, &country, &lang, &art).await;
+                (art, glb)
+            }
+        })
+        .buffer_unordered(6)
+        .collect()
+        .await;
+    let models: BTreeMap<String, Vec<u8>> = fetched.into_iter().filter_map(|(a, g)| Some((a, g?))).collect();
+    build(arts, models)
+}
+
+/// Assembly with the models at hand (article no → GLB).
+pub fn build(arts: &[Value], fetched: BTreeMap<String, Vec<u8>>) -> ApiResult<(Vec<u8>, Vec<String>)> {
+    let by_id: BTreeMap<i64, &Value> = arts.iter().filter_map(|a| Some((a["id"].as_i64()?, a))).collect();
+    let places = places(arts);
+    let visible = |p: &Place| !HIDDEN.iter().any(|h| by_id[&p.id]["category"].as_str().unwrap_or("").to_lowercase().contains(h));
+    // model bytes + its bbox centre (metres, model frame)
+    let mut models: BTreeMap<String, (Vec<u8>, [f64; 3])> = BTreeMap::new();
+    for (art, glb) in fetched {
+        if let Ok(bb) = crate::glb::bbox(&glb) {
+            let c = [(bb.min[0] + bb.max[0]) / 2.0, (bb.min[1] + bb.max[1]) / 2.0, (bb.min[2] + bb.max[2]) / 2.0];
+            models.insert(art, (glb, c));
+        }
+    }
+    let mut instances: BTreeMap<String, Vec<crate::glb::Mat4>> = BTreeMap::new();
+    let mut modelled: std::collections::BTreeSet<i64> = Default::default();
+    let mut total = 0;
+    for p in places.iter().filter(|p| visible(p)) {
+        total += 1;
+        let Some(art) = article_no(by_id[&p.id]) else { continue };
+        let Some((_, bc)) = models.get(&art) else { continue };
+        instances.entry(art).or_default().push(part_matrix(p, *bc));
+        modelled.insert(p.id);
+    }
+    let rest: Vec<Solid> = solids(arts).into_iter().filter(|s| !modelled.contains(&s.art)).collect();
+    let boxes = (!rest.is_empty()).then(|| write_glb_at(&rest, [0.0; 3]));
+    let mut sources: Vec<(&[u8], Vec<crate::glb::Mat4>)> = models.iter().filter_map(|(art, (glb, _))| Some((glb.as_slice(), instances.get(art)?.clone()))).collect();
+    if let Some(b) = &boxes {
+        sources.push((b.as_slice(), vec![crate::glb::IDENTITY]));
+    }
+    if sources.is_empty() {
+        return Err(ApiError::unprocessable("Im Planer-Design keine darstellbaren Teile gefunden"));
+    }
+    let glb = crate::glb::merge(&sources).map_err(|e| ApiError::internal(format!("GLB zusammenführen: {e:#}")))?;
+    let mut warnings = Vec::new();
+    if modelled.len() == total {
+        warnings.push(format!("Aus {} IKEA-3D-Modellen zusammengesetzt ({} Teile).", models.len(), total));
+    } else {
+        warnings.push(format!("{} von {} Teilen als IKEA-3D-Modell, der Rest vereinfacht nachgebaut.", modelled.len(), total));
+    }
+    Ok((glb, warnings))
+}
+
+/// Model (metres, bbox centre `bc`) → IKEA world: centre on the part, rotate like the part (z, x, y).
+fn part_matrix(p: &Place, bc: [f64; 3]) -> crate::glb::Mat4 {
+    let ex = rotate([1.0, 0.0, 0.0], p.rot);
+    let ey = rotate([0.0, 1.0, 0.0], p.rot);
+    let ez = rotate([0.0, 0.0, 1.0], p.rot);
+    let t = [p.c[0] / 1000.0, p.c[1] / 1000.0, p.c[2] / 1000.0];
+    // translation = t − R·bc
+    let rb = [ex[0] * bc[0] + ey[0] * bc[1] + ez[0] * bc[2], ex[1] * bc[0] + ey[1] * bc[1] + ez[1] * bc[2], ex[2] * bc[0] + ey[2] * bc[1] + ez[2] * bc[2]];
+    [ex[0], ex[1], ex[2], 0.0, ey[0], ey[1], ey[2], 0.0, ez[0], ez[1], ez[2], 0.0, t[0] - rb[0], t[1] - rb[1], t[2] - rb[2], 1.0]
+}
+
 // ------------------------------------------------------------------ geometry
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -167,6 +250,8 @@ pub struct Mat {
 /// Oriented box: centre (mm, y up), half extents (mm), rotation (deg, applied z, then x, then y).
 #[derive(Clone, Debug)]
 pub struct Solid {
+    /// ICF article id the solid belongs to.
+    pub art: i64,
     pub c: [f64; 3],
     pub half: [f64; 3],
     pub rot: [f64; 3],
@@ -200,8 +285,16 @@ fn material_for(cat: &str, colors: &[String]) -> Mat {
     Mat { color: c0.unwrap_or(hex("#ece8e1").unwrap()), metallic: 0.0, roughness: 0.6 }
 }
 
-/// Articles → solids in IKEA world coordinates (mm).
-pub fn solids(arts: &[Value]) -> Vec<Solid> {
+/// Placement of an article in IKEA world coordinates (mm, y up): centre, dimensions, rotation (deg).
+pub struct Place {
+    pub id: i64,
+    pub c: [f64; 3],
+    pub dims: [f64; 3],
+    pub rot: [f64; 3],
+}
+
+/// Centres of all articles. Some carry positions in another frame: those are rebuilt from their children.
+pub fn places(arts: &[Value]) -> Vec<Place> {
     let by_id: BTreeMap<i64, &Value> = arts.iter().filter_map(|a| Some((a["id"].as_i64()?, a))).collect();
     let roots: Vec<&Value> = arts.iter().filter(|a| a["parent_ids"].as_array().is_none_or(|p| p.is_empty())).collect();
     // reference centre: median of root centres (some articles carry positions in another frame)
@@ -212,19 +305,13 @@ pub fn solids(arts: &[Value]) -> Vec<Solid> {
     let mid = [xs.get(xs.len() / 2).copied().unwrap_or(0.0), zs.get(zs.len() / 2).copied().unwrap_or(0.0)];
     let mut out = Vec::new();
     for a in arts {
-        let cat = a["category"].as_str().unwrap_or("").to_lowercase();
-        let is_door = cat.contains("door");
-        let is_carcass = cat.ends_with("frame") || cat.contains("addon");
-        if !is_door && !is_carcass && SKIP.iter().any(|s| cat.contains(s)) {
-            continue;
-        }
+        let Some(id) = a["id"].as_i64() else { continue };
         let dims = v3(&a["dimensions"]);
         if dims.iter().any(|d| *d < 1.0) {
             continue;
         }
         let rot = v3(&a["transform"]["rotation"]);
         let mut c = v3(&a["transform"]["position"]);
-        let colors: Vec<String> = a["colors"].as_array().map(|c| c.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
         // outlier position: rebuild from the children's centres (e.g. corner add-ons)
         if (c[0] - mid[0]).hypot(c[2] - mid[1]) > 3000.0 {
             let kids: Vec<[f64; 3]> = a["child_ids"]
@@ -242,6 +329,24 @@ pub fn solids(arts: &[Value]) -> Vec<Solid> {
             }
             c = [(lo[0] + hi[0]) / 2.0, dims[1] / 2.0, (lo[1] + hi[1]) / 2.0];
         }
+        out.push(Place { id, c, dims, rot });
+    }
+    out
+}
+
+/// Articles → solids in IKEA world coordinates (mm).
+pub fn solids(arts: &[Value]) -> Vec<Solid> {
+    let by_id: BTreeMap<i64, &Value> = arts.iter().filter_map(|a| Some((a["id"].as_i64()?, a))).collect();
+    let mut out = Vec::new();
+    for Place { id, c, dims, rot } in places(arts) {
+        let a = by_id[&id];
+        let cat = a["category"].as_str().unwrap_or("").to_lowercase();
+        let is_door = cat.contains("door");
+        let is_carcass = cat.ends_with("frame") || cat.contains("addon");
+        if !is_door && !is_carcass && SKIP.iter().any(|s| cat.contains(s)) {
+            continue;
+        }
+        let colors: Vec<String> = a["colors"].as_array().map(|c| c.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
         let mat = material_for(&cat, &colors);
         if is_carcass {
             // carcass as panels (local: x width, y height, z depth, front = +z)
@@ -257,11 +362,11 @@ pub fn solids(arts: &[Value]) -> Vec<Solid> {
                 ([0.0, 0.0, -d + 3.0], [w - 2.0 * t, h, 3.0]),
             ] {
                 let p = rotate(lc, rot);
-                out.push(Solid { c: [c[0] + p[0], c[1] + p[1], c[2] + p[2]], half: lh, rot, mat: frame_mat });
+                out.push(Solid { art: id, c: [c[0] + p[0], c[1] + p[1], c[2] + p[2]], half: lh, rot, mat: frame_mat });
             }
             continue;
         }
-        out.push(Solid { c, half: [dims[0] / 2.0, dims[1] / 2.0, dims[2] / 2.0], rot, mat });
+        out.push(Solid { art: id, c, half: [dims[0] / 2.0, dims[1] / 2.0, dims[2] / 2.0], rot, mat });
     }
     out
 }
@@ -302,7 +407,24 @@ pub fn write_glb(solids: &[Solid]) -> Vec<u8> {
             }
         }
     }
-    let off = [(lo[0] + hi[0]) / 2.0, lo[1], (lo[2] + hi[2]) / 2.0];
+    write_glb_at(solids, [(lo[0] + hi[0]) / 2.0, lo[1], (lo[2] + hi[2]) / 2.0])
+}
+
+/// Solids (mm) → GLB (metres) with `off` (mm) subtracted; `[0; 3]` keeps IKEA world coordinates.
+pub fn write_glb_at(solids: &[Solid], off: [f64; 3]) -> Vec<u8> {
+    let corners = |s: &Solid| {
+        let mut v = Vec::with_capacity(8);
+        for i in 0..8 {
+            let l = [
+                if i & 1 == 0 { -s.half[0] } else { s.half[0] },
+                if i & 2 == 0 { -s.half[1] } else { s.half[1] },
+                if i & 4 == 0 { -s.half[2] } else { s.half[2] },
+            ];
+            let r = rotate(l, s.rot);
+            v.push([s.c[0] + r[0], s.c[1] + r[1], s.c[2] + r[2]]);
+        }
+        v
+    };
     // group by material
     let mut groups: Vec<(Mat, Vec<f32>, Vec<f32>, Vec<u32>)> = Vec::new();
     const FACES: [([f64; 3], [usize; 4]); 6] = [
@@ -406,6 +528,38 @@ mod tests {
         let l = parse_link("https://www.ikea.com/addon-app/storageone/besta/web/latest/de/de/#/u/ab12cd").unwrap();
         assert_eq!((l.range.as_str(), l.code.as_str(), l.locale.as_str()), ("besta", "AB12CD", "de-DE"));
         assert!(parse_link("https://www.ikea.com/ch/de/p/billy-buecherregal-weiss-00263850/").is_none());
+    }
+
+    /// Manual check with a real design and its article models:
+    /// `IA_PLANNER_DIR=dir cargo test -p innenarchitekt assembles_real -- --nocapture` (dir: vpc.json + <article>.glb).
+    #[test]
+    fn assembles_real_design_from_models() {
+        let Ok(dir) = std::env::var("IA_PLANNER_DIR") else { return };
+        let cfg: Value = serde_json::from_str(&std::fs::read_to_string(format!("{dir}/vpc.json")).unwrap()).unwrap();
+        let arts = cfg.pointer("/icf/content/articles").unwrap().as_array().unwrap();
+        let mut models = BTreeMap::new();
+        for e in std::fs::read_dir(&dir).unwrap().flatten() {
+            let n = e.file_name().to_string_lossy().to_string();
+            if let Some(a) = n.strip_suffix(".glb").filter(|a| a.len() == 8) {
+                models.insert(a.to_string(), std::fs::read(e.path()).unwrap());
+            }
+        }
+        let (glb, warnings) = build(arts, models).map_err(|e| format!("{e:?}")).unwrap();
+        std::fs::write(format!("{dir}/assembled.glb"), &glb).unwrap();
+        println!("{warnings:?} {} KB, bbox {:?}", glb.len() / 1024, crate::glb::bbox(&glb).unwrap().wdh_mm());
+    }
+
+    #[test]
+    fn merges_box_glbs_with_instances() {
+        let s = vec![Solid { art: 1, c: [0.0, 500.0, 0.0], half: [500.0, 500.0, 200.0], rot: [0.0; 3], mat: Mat { color: [1.0; 3], metallic: 0.0, roughness: 0.5 } }];
+        let a = write_glb_at(&s, [0.0; 3]);
+        let p = Place { id: 1, c: [2000.0, 500.0, 0.0], dims: [1000.0, 1000.0, 400.0], rot: [0.0, 90.0, 0.0] };
+        let m = vec![crate::glb::IDENTITY, part_matrix(&p, [0.0, 0.5, 0.0])];
+        let glb = crate::glb::merge(&[(a.as_slice(), m)]).unwrap();
+        let j = crate::glb::json_chunk(&glb).unwrap();
+        assert_eq!(j["meshes"].as_array().unwrap().len(), 1, "mesh shared");
+        // box at x −0.5…0.5 plus a turned copy at x 1.8…2.2 → 2.7 m wide, 1 m high, 1 m deep
+        assert_eq!(crate::glb::bbox(&glb).unwrap().wdh_mm(), [2700, 1000, 1000]);
     }
 
     #[test]

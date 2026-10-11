@@ -67,11 +67,11 @@ pub fn json_chunk(bytes: &[u8]) -> Result<Value> {
     serde_json::from_slice(data).context("GLB-JSON ungültig")
 }
 
-type Mat4 = [f64; 16]; // column-major, like glTF
+pub type Mat4 = [f64; 16]; // column-major, like glTF
 
-const IDENTITY: Mat4 = [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.];
+pub const IDENTITY: Mat4 = [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.];
 
-fn mul(a: &Mat4, b: &Mat4) -> Mat4 {
+pub fn mul(a: &Mat4, b: &Mat4) -> Mat4 {
     let mut r = [0.0; 16];
     for c in 0..4 {
         for row in 0..4 {
@@ -227,6 +227,202 @@ pub fn bbox_from_json(json: &Value) -> Result<BBox> {
 
 pub fn bbox(bytes: &[u8]) -> Result<BBox> {
     bbox_from_json(&json_chunk(bytes)?)
+}
+
+/// Binary chunk of a GLB (empty if absent).
+pub fn bin_chunk(bytes: &[u8]) -> Result<&[u8]> {
+    let u32_at = |o: usize| bytes.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize);
+    let jlen = u32_at(12).ok_or_else(|| anyhow!("GLB abgeschnitten"))?;
+    let o = 20 + jlen;
+    let Some(blen) = u32_at(o) else { return Ok(&[]) };
+    bytes.get(o + 8..o + 8 + blen).ok_or_else(|| anyhow!("GLB-BIN-Chunk abgeschnitten"))
+}
+
+fn shift(v: &mut Value, key: &str, by: usize) {
+    if let Some(i) = v.get(key).and_then(Value::as_u64) {
+        v[key] = Value::from(i as usize + by);
+    }
+}
+
+/// Texture references in a material: every object under a key ending in «Texture» carries an `index`.
+fn shift_textures(v: &mut Value, by: usize) {
+    match v {
+        Value::Object(m) => {
+            for (k, x) in m.iter_mut() {
+                if k.ends_with("Texture") && x.is_object() {
+                    shift(x, "index", by);
+                }
+                shift_textures(x, by);
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(|x| shift_textures(x, by)),
+        _ => {}
+    }
+}
+
+/// Merge GLBs into one: each source is placed once per matrix (metres, column-major). Meshes, materials and
+/// textures are shared between instances; compressed data (Draco, WebP …) is copied as is. The result is
+/// recentred like the other furniture models: footprint centre at the origin, bottom at y = 0.
+pub fn merge(sources: &[(&[u8], Vec<Mat4>)]) -> Result<Vec<u8>> {
+    let mut out: serde_json::Map<String, Value> = serde_json::Map::new();
+    let mut lists: std::collections::BTreeMap<&str, Vec<Value>> = Default::default();
+    let mut used: std::collections::BTreeSet<String> = Default::default();
+    let mut required: std::collections::BTreeSet<String> = Default::default();
+    let mut bin: Vec<u8> = Vec::new();
+    let mut instances: Vec<usize> = Vec::new();
+    const KEYS: [&str; 8] = ["bufferViews", "accessors", "images", "samplers", "textures", "materials", "meshes", "nodes"];
+    for (bytes, mats) in sources {
+        if mats.is_empty() {
+            continue;
+        }
+        let j = json_chunk(bytes)?;
+        let src_bin = bin_chunk(bytes)?;
+        let base: std::collections::BTreeMap<&str, usize> = KEYS.iter().map(|k| (*k, lists.get(k).map_or(0, |l| l.len()))).collect();
+        while bin.len() % 8 != 0 {
+            bin.push(0);
+        }
+        let bin_base = bin.len();
+        bin.extend_from_slice(src_bin);
+        for e in j.get("extensionsUsed").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+            used.insert(e.into());
+        }
+        for e in j.get("extensionsRequired").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+            required.insert(e.into());
+        }
+        let arr = |k: &str| j.get(k).and_then(Value::as_array).cloned().unwrap_or_default();
+        for mut v in arr("bufferViews") {
+            v["buffer"] = Value::from(0);
+            let off = v.get("byteOffset").and_then(Value::as_u64).unwrap_or(0) as usize;
+            v["byteOffset"] = Value::from(off + bin_base);
+            lists.entry("bufferViews").or_default().push(v);
+        }
+        for mut v in arr("accessors") {
+            shift(&mut v, "bufferView", base["bufferViews"]);
+            if let Some(sp) = v.get_mut("sparse") {
+                for k in ["indices", "values"] {
+                    if let Some(x) = sp.get_mut(k) {
+                        shift(x, "bufferView", base["bufferViews"]);
+                    }
+                }
+            }
+            lists.entry("accessors").or_default().push(v);
+        }
+        for mut v in arr("images") {
+            if v.get("uri").is_some() {
+                bail!("GLB mit externen Bildern wird nicht unterstützt");
+            }
+            shift(&mut v, "bufferView", base["bufferViews"]);
+            lists.entry("images").or_default().push(v);
+        }
+        lists.entry("samplers").or_default().extend(arr("samplers"));
+        for mut v in arr("textures") {
+            shift(&mut v, "sampler", base["samplers"]);
+            shift(&mut v, "source", base["images"]);
+            if let Some(Value::Object(ext)) = v.get_mut("extensions") {
+                for x in ext.values_mut() {
+                    shift(x, "source", base["images"]);
+                }
+            }
+            lists.entry("textures").or_default().push(v);
+        }
+        for mut v in arr("materials") {
+            shift_textures(&mut v, base["textures"]);
+            lists.entry("materials").or_default().push(v);
+        }
+        for mut m in arr("meshes") {
+            for p in m.get_mut("primitives").and_then(Value::as_array_mut).into_iter().flatten() {
+                if let Some(Value::Object(at)) = p.get_mut("attributes") {
+                    for x in at.values_mut() {
+                        *x = Value::from(x.as_u64().unwrap_or(0) as usize + base["accessors"]);
+                    }
+                }
+                for t in p.get_mut("targets").and_then(Value::as_array_mut).into_iter().flatten() {
+                    if let Value::Object(at) = t {
+                        for x in at.values_mut() {
+                            *x = Value::from(x.as_u64().unwrap_or(0) as usize + base["accessors"]);
+                        }
+                    }
+                }
+                shift(p, "indices", base["accessors"]);
+                shift(p, "material", base["materials"]);
+                if let Some(d) = p.get_mut("extensions").and_then(|e| e.get_mut("KHR_draco_mesh_compression")) {
+                    shift(d, "bufferView", base["bufferViews"]);
+                }
+            }
+            lists.entry("meshes").or_default().push(m);
+        }
+        // node tree once per instance (a glTF node has a single parent); meshes are shared
+        let nodes = arr("nodes");
+        let roots: Vec<usize> = j
+            .get("scenes")
+            .and_then(|s| s.get(j.get("scene").and_then(Value::as_u64).unwrap_or(0) as usize))
+            .and_then(|s| s.get("nodes"))
+            .and_then(Value::as_array)
+            .map(|n| n.iter().filter_map(Value::as_u64).map(|x| x as usize).collect())
+            .unwrap_or_else(|| (0..nodes.len()).collect());
+        for m in mats {
+            let nb = lists.get("nodes").map_or(0, |l| l.len());
+            for n in &nodes {
+                let mut n = n.clone();
+                if let Some(o) = n.as_object_mut() {
+                    o.remove("skin");
+                    o.remove("camera");
+                }
+                shift(&mut n, "mesh", base["meshes"]);
+                if let Some(c) = n.get_mut("children").and_then(Value::as_array_mut) {
+                    for x in c.iter_mut() {
+                        *x = Value::from(x.as_u64().unwrap_or(0) as usize + nb);
+                    }
+                }
+                lists.entry("nodes").or_default().push(n);
+            }
+            let wrapper = serde_json::json!({ "matrix": m.to_vec(), "children": roots.iter().map(|r| r + nb).collect::<Vec<_>>() });
+            lists.entry("nodes").or_default().push(wrapper);
+            instances.push(lists["nodes"].len() - 1);
+        }
+    }
+    if instances.is_empty() {
+        bail!("nichts zum Zusammenführen");
+    }
+    while bin.len() % 4 != 0 {
+        bin.push(0);
+    }
+    let root = lists.get("nodes").map_or(0, |l| l.len());
+    lists.entry("nodes").or_default().push(serde_json::json!({ "name": "planner", "children": instances }));
+    out.insert("asset".into(), serde_json::json!({ "version": "2.0", "generator": "innenarchitekt merge" }));
+    out.insert("scene".into(), Value::from(0));
+    out.insert("scenes".into(), serde_json::json!([{ "nodes": [root] }]));
+    out.insert("buffers".into(), serde_json::json!([{ "byteLength": bin.len() }]));
+    for (k, v) in lists {
+        if !v.is_empty() {
+            out.insert(k.into(), Value::Array(v));
+        }
+    }
+    if !used.is_empty() {
+        out.insert("extensionsUsed".into(), serde_json::json!(used));
+    }
+    if !required.is_empty() {
+        out.insert("extensionsRequired".into(), serde_json::json!(required));
+    }
+    let mut gltf = Value::Object(out);
+    let bb = bbox_from_json(&gltf)?;
+    gltf["nodes"][root]["translation"] = serde_json::json!([-(bb.min[0] + bb.max[0]) / 2.0, -bb.min[1], -(bb.min[2] + bb.max[2]) / 2.0]);
+    let mut j = serde_json::to_vec(&gltf)?;
+    while j.len() % 4 != 0 {
+        j.push(b' ');
+    }
+    let total = 12 + 8 + j.len() + 8 + bin.len();
+    let mut o = Vec::with_capacity(total);
+    o.extend_from_slice(MAGIC);
+    o.extend_from_slice(&2u32.to_le_bytes());
+    o.extend_from_slice(&(total as u32).to_le_bytes());
+    o.extend_from_slice(&(j.len() as u32).to_le_bytes());
+    o.extend_from_slice(&CHUNK_JSON.to_le_bytes());
+    o.extend_from_slice(&j);
+    o.extend_from_slice(&(bin.len() as u32).to_le_bytes());
+    o.extend_from_slice(&0x004E_4942u32.to_le_bytes());
+    o.extend_from_slice(&bin);
+    Ok(o)
 }
 
 #[cfg(test)]
