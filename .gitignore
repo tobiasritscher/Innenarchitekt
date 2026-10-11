@@ -1,0 +1,10 @@
+/target
+node_modules
+/web/dist
+/web/src/core/wasm
+/data
+.env
+*.log
+.DS_Store
+.playwright-mcp
+*.tsbuildinfo

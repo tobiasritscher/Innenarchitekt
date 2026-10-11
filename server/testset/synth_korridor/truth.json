@@ -1,0 +1,501 @@
+{
+  "id": "e9a026ae-e1d2-496c-8720-fad9c3c35001",
+  "name": "EG",
+  "ceiling_height_mm": 2500,
+  "nodes": [
+    {
+      "id": "0e8bec55-28c3-4090-8a70-734d5030481d",
+      "x_mm": 0,
+      "y_mm": 0
+    },
+    {
+      "id": "560901d0-881f-4f06-94fc-047cd1dd6c6d",
+      "x_mm": 11000,
+      "y_mm": 0
+    },
+    {
+      "id": "a47aa8ee-fa26-427f-bb92-611db70fe7ad",
+      "x_mm": 11000,
+      "y_mm": 8000
+    },
+    {
+      "id": "2e381e8d-cd51-46ba-99c2-595f3ee77242",
+      "x_mm": 0,
+      "y_mm": 8000
+    },
+    {
+      "id": "5cda4620-8584-4fad-b295-7bb12ab2b029",
+      "x_mm": 0,
+      "y_mm": 3600
+    },
+    {
+      "id": "feb7cf04-6d3b-4520-9384-3db5acfc2610",
+      "x_mm": 11000,
+      "y_mm": 3600
+    },
+    {
+      "id": "cc066958-cac9-428b-b3e7-a50b7513ae31",
+      "x_mm": 3500,
+      "y_mm": 4800
+    },
+    {
+      "id": "73c25208-2052-4613-a30c-16f7b651a535",
+      "x_mm": 11000,
+      "y_mm": 4800
+    },
+    {
+      "id": "f26d858c-872d-42ba-af8a-cad2994f11e1",
+      "x_mm": 4500,
+      "y_mm": 0
+    },
+    {
+      "id": "2bafdee3-9900-47e5-b274-9c1d9146ae93",
+      "x_mm": 4500,
+      "y_mm": 3600
+    },
+    {
+      "id": "af3db05b-bf27-4ab4-a807-8b3224e0e520",
+      "x_mm": 7800,
+      "y_mm": 0
+    },
+    {
+      "id": "749eec39-5236-4ca3-8753-a8c6343acdaa",
+      "x_mm": 7800,
+      "y_mm": 3600
+    },
+    {
+      "id": "fe72872c-a256-418f-84e9-4c26e5583202",
+      "x_mm": 3500,
+      "y_mm": 3600
+    },
+    {
+      "id": "cce4ebe1-e944-426f-98a8-89a5f78da2c5",
+      "x_mm": 3500,
+      "y_mm": 8000
+    },
+    {
+      "id": "68e435ec-97dc-4e59-a7be-6b6f35c49f45",
+      "x_mm": 7000,
+      "y_mm": 4800
+    },
+    {
+      "id": "c19ffadd-2287-4eba-b683-87ae538bfa2c",
+      "x_mm": 7000,
+      "y_mm": 8000
+    }
+  ],
+  "walls": [
+    {
+      "id": "bc014c59-f128-48fd-947f-b024d999ec35",
+      "a": "0e8bec55-28c3-4090-8a70-734d5030481d",
+      "b": "f26d858c-872d-42ba-af8a-cad2994f11e1",
+      "thickness_mm": 365,
+      "kind": "Exterior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "3367fcd2-84b9-4791-b883-a38d6a316a66",
+      "a": "560901d0-881f-4f06-94fc-047cd1dd6c6d",
+      "b": "feb7cf04-6d3b-4520-9384-3db5acfc2610",
+      "thickness_mm": 365,
+      "kind": "Exterior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "45e9827b-79ca-41de-9446-cbe12a24b2fc",
+      "a": "a47aa8ee-fa26-427f-bb92-611db70fe7ad",
+      "b": "c19ffadd-2287-4eba-b683-87ae538bfa2c",
+      "thickness_mm": 365,
+      "kind": "Exterior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "60320e75-5543-4806-8f9c-280d849a6b21",
+      "a": "2e381e8d-cd51-46ba-99c2-595f3ee77242",
+      "b": "5cda4620-8584-4fad-b295-7bb12ab2b029",
+      "thickness_mm": 365,
+      "kind": "Exterior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "704b95d6-6d12-4b07-8241-fc95cab173e7",
+      "a": "5cda4620-8584-4fad-b295-7bb12ab2b029",
+      "b": "0e8bec55-28c3-4090-8a70-734d5030481d",
+      "thickness_mm": 365,
+      "kind": "Exterior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "7790f2e1-a398-458f-9130-31e903fe4fcb",
+      "a": "feb7cf04-6d3b-4520-9384-3db5acfc2610",
+      "b": "73c25208-2052-4613-a30c-16f7b651a535",
+      "thickness_mm": 365,
+      "kind": "Exterior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "aee12d21-e712-4b11-8881-232bf294382b",
+      "a": "5cda4620-8584-4fad-b295-7bb12ab2b029",
+      "b": "fe72872c-a256-418f-84e9-4c26e5583202",
+      "thickness_mm": 120,
+      "kind": "Interior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "4fe4c55b-5f4b-4f33-babb-701fad47ba57",
+      "a": "73c25208-2052-4613-a30c-16f7b651a535",
+      "b": "a47aa8ee-fa26-427f-bb92-611db70fe7ad",
+      "thickness_mm": 365,
+      "kind": "Exterior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "41fe872d-ae35-472e-a1a9-7d0b6492ead6",
+      "a": "cc066958-cac9-428b-b3e7-a50b7513ae31",
+      "b": "68e435ec-97dc-4e59-a7be-6b6f35c49f45",
+      "thickness_mm": 120,
+      "kind": "Interior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "f5915d87-8630-4d75-a3d2-b9904aa9c393",
+      "a": "f26d858c-872d-42ba-af8a-cad2994f11e1",
+      "b": "af3db05b-bf27-4ab4-a807-8b3224e0e520",
+      "thickness_mm": 365,
+      "kind": "Exterior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "88e0bd12-bbd5-43d0-8be7-7cf145b04817",
+      "a": "2bafdee3-9900-47e5-b274-9c1d9146ae93",
+      "b": "749eec39-5236-4ca3-8753-a8c6343acdaa",
+      "thickness_mm": 120,
+      "kind": "Interior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "2c8a0d2e-d8b9-4224-9261-f5c6322ef935",
+      "a": "f26d858c-872d-42ba-af8a-cad2994f11e1",
+      "b": "2bafdee3-9900-47e5-b274-9c1d9146ae93",
+      "thickness_mm": 150,
+      "kind": "Interior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "add39eed-06fc-4e91-96c3-7a9d867ec402",
+      "a": "af3db05b-bf27-4ab4-a807-8b3224e0e520",
+      "b": "560901d0-881f-4f06-94fc-047cd1dd6c6d",
+      "thickness_mm": 365,
+      "kind": "Exterior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "c7664599-fc3f-4fb8-a74f-6287123b586b",
+      "a": "749eec39-5236-4ca3-8753-a8c6343acdaa",
+      "b": "feb7cf04-6d3b-4520-9384-3db5acfc2610",
+      "thickness_mm": 120,
+      "kind": "Interior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "6099ad5c-ad0d-4e7f-b5dc-8750f7937959",
+      "a": "af3db05b-bf27-4ab4-a807-8b3224e0e520",
+      "b": "749eec39-5236-4ca3-8753-a8c6343acdaa",
+      "thickness_mm": 120,
+      "kind": "Interior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "94d4a111-960b-48e4-bfaf-243083a6d7d9",
+      "a": "fe72872c-a256-418f-84e9-4c26e5583202",
+      "b": "2bafdee3-9900-47e5-b274-9c1d9146ae93",
+      "thickness_mm": 120,
+      "kind": "Interior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "6a4d755a-d529-4f2d-9d29-44aa7ff6290e",
+      "a": "cce4ebe1-e944-426f-98a8-89a5f78da2c5",
+      "b": "2e381e8d-cd51-46ba-99c2-595f3ee77242",
+      "thickness_mm": 365,
+      "kind": "Exterior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "503139aa-4bb4-47c6-b8dc-2999dedcf7ee",
+      "a": "fe72872c-a256-418f-84e9-4c26e5583202",
+      "b": "cc066958-cac9-428b-b3e7-a50b7513ae31",
+      "thickness_mm": 120,
+      "kind": "Interior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "a46fc480-0cd9-47d3-a749-4e5304891ac2",
+      "a": "cc066958-cac9-428b-b3e7-a50b7513ae31",
+      "b": "cce4ebe1-e944-426f-98a8-89a5f78da2c5",
+      "thickness_mm": 120,
+      "kind": "Interior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "744aa6ce-bce2-4893-8949-193b1f9a002c",
+      "a": "68e435ec-97dc-4e59-a7be-6b6f35c49f45",
+      "b": "73c25208-2052-4613-a30c-16f7b651a535",
+      "thickness_mm": 120,
+      "kind": "Interior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "c78b920d-6ad6-4154-a06c-4593c0b4ba42",
+      "a": "c19ffadd-2287-4eba-b683-87ae538bfa2c",
+      "b": "cce4ebe1-e944-426f-98a8-89a5f78da2c5",
+      "thickness_mm": 365,
+      "kind": "Exterior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    },
+    {
+      "id": "02f40b00-15c1-4056-b7ec-9d6860754d5f",
+      "a": "68e435ec-97dc-4e59-a7be-6b6f35c49f45",
+      "b": "c19ffadd-2287-4eba-b683-87ae538bfa2c",
+      "thickness_mm": 120,
+      "kind": "Interior",
+      "finish_left": "paint:white",
+      "finish_right": "paint:white"
+    }
+  ],
+  "openings": [
+    {
+      "id": "1a5ded12-64a9-425d-a5c9-8321de6a3ba7",
+      "wall": "aee12d21-e712-4b11-8881-232bf294382b",
+      "kind": {
+        "type": "Door",
+        "hinge": "Start",
+        "swing": "Left"
+      },
+      "offset_mm": 1750,
+      "width_mm": 900,
+      "height_mm": 2050
+    },
+    {
+      "id": "1008bf83-fdee-4ff6-9061-8cf0a0e726e7",
+      "wall": "88e0bd12-bbd5-43d0-8be7-7cf145b04817",
+      "kind": {
+        "type": "Door",
+        "hinge": "End",
+        "swing": "Left"
+      },
+      "offset_mm": 1200,
+      "width_mm": 800,
+      "height_mm": 2050
+    },
+    {
+      "id": "0c449c2a-385e-4ae6-b790-9e9cd105de7f",
+      "wall": "c7664599-fc3f-4fb8-a74f-6287123b586b",
+      "kind": {
+        "type": "Door",
+        "hinge": "Start",
+        "swing": "Left"
+      },
+      "offset_mm": 1200,
+      "width_mm": 800,
+      "height_mm": 2050
+    },
+    {
+      "id": "f20bc465-6e40-47b4-a19d-668d7486c708",
+      "wall": "41fe872d-ae35-472e-a1a9-7d0b6492ead6",
+      "kind": {
+        "type": "Door",
+        "hinge": "End",
+        "swing": "Right"
+      },
+      "offset_mm": 1250,
+      "width_mm": 900,
+      "height_mm": 2050
+    },
+    {
+      "id": "5d8568d5-a515-45bd-a24e-1343600d1319",
+      "wall": "744aa6ce-bce2-4893-8949-193b1f9a002c",
+      "kind": {
+        "type": "Door",
+        "hinge": "Start",
+        "swing": "Right"
+      },
+      "offset_mm": 1600,
+      "width_mm": 800,
+      "height_mm": 2050
+    },
+    {
+      "id": "016dfce4-9d56-43b9-9556-d9734129110d",
+      "wall": "7790f2e1-a398-458f-9130-31e903fe4fcb",
+      "kind": {
+        "type": "Door",
+        "hinge": "Start",
+        "swing": "Left"
+      },
+      "offset_mm": 100,
+      "width_mm": 1000,
+      "height_mm": 2050
+    },
+    {
+      "id": "e2c07ada-d9b7-418b-9245-18c6d0be65dd",
+      "wall": "bc014c59-f128-48fd-947f-b024d999ec35",
+      "kind": {
+        "type": "Window",
+        "sill_mm": 850
+      },
+      "offset_mm": 1200,
+      "width_mm": 2000,
+      "height_mm": 1400
+    },
+    {
+      "id": "e90c0607-59b8-48c9-9215-85c99b16bff4",
+      "wall": "f5915d87-8630-4d75-a3d2-b9904aa9c393",
+      "kind": {
+        "type": "Window",
+        "sill_mm": 850
+      },
+      "offset_mm": 900,
+      "width_mm": 1400,
+      "height_mm": 1400
+    },
+    {
+      "id": "aa071c91-e7cb-429d-998a-4dd35c61b357",
+      "wall": "add39eed-06fc-4e91-96c3-7a9d867ec402",
+      "kind": {
+        "type": "Window",
+        "sill_mm": 850
+      },
+      "offset_mm": 1000,
+      "width_mm": 1200,
+      "height_mm": 1400
+    },
+    {
+      "id": "084cea97-6255-4c65-bd88-aba95aeae10a",
+      "wall": "6a4d755a-d529-4f2d-9d29-44aa7ff6290e",
+      "kind": {
+        "type": "Window",
+        "sill_mm": 850
+      },
+      "offset_mm": 600,
+      "width_mm": 2400,
+      "height_mm": 1400
+    },
+    {
+      "id": "56fc21d0-64d7-47df-bf9e-1bdc46a73904",
+      "wall": "c78b920d-6ad6-4154-a06c-4593c0b4ba42",
+      "kind": {
+        "type": "Window",
+        "sill_mm": 850
+      },
+      "offset_mm": 1100,
+      "width_mm": 1400,
+      "height_mm": 1400
+    },
+    {
+      "id": "0cb568ea-2491-490c-b3a8-0c67e9714766",
+      "wall": "60320e75-5543-4806-8f9c-280d849a6b21",
+      "kind": {
+        "type": "Window",
+        "sill_mm": 850
+      },
+      "offset_mm": 1400,
+      "width_mm": 1200,
+      "height_mm": 1400
+    }
+  ],
+  "rooms": [
+    {
+      "id": "48a34a4c-7b65-42a5-ac15-b9f02b218700",
+      "anchor": [
+        1700,
+        5800
+      ],
+      "name": "Wohnen/Essen",
+      "floor_material": "wood:oak",
+      "ceiling_material": "paint:white"
+    },
+    {
+      "id": "abcf4283-3005-49ba-aeab-0190319f8651",
+      "anchor": [
+        2200,
+        1800
+      ],
+      "name": "Zimmer 1",
+      "floor_material": "wood:oak",
+      "ceiling_material": "paint:white"
+    },
+    {
+      "id": "801cfa66-96ea-4525-9052-fcb77554649c",
+      "anchor": [
+        6100,
+        1800
+      ],
+      "name": "Zimmer 2",
+      "floor_material": "wood:oak",
+      "ceiling_material": "paint:white"
+    },
+    {
+      "id": "68e3c507-54d7-4eb0-bd03-8e478f82fc84",
+      "anchor": [
+        9400,
+        1800
+      ],
+      "name": "Küche",
+      "floor_material": "wood:oak",
+      "ceiling_material": "paint:white"
+    },
+    {
+      "id": "7fec1e85-35db-4e73-8d1c-b33315d1a206",
+      "anchor": [
+        5200,
+        6400
+      ],
+      "name": "Bad",
+      "floor_material": "tile:white",
+      "ceiling_material": "paint:white"
+    },
+    {
+      "id": "76bf0378-9d34-4118-9bcd-6f1e93e1a48f",
+      "anchor": [
+        9000,
+        6400
+      ],
+      "name": "Reduit",
+      "floor_material": "wood:oak",
+      "ceiling_material": "paint:white"
+    }
+  ],
+  "reference_image": {
+    "url": "plan.png",
+    "width_px": 2029,
+    "height_px": 1600,
+    "origin_mm": [
+      -1600.0,
+      -1600.0
+    ],
+    "mm_per_px": 7.0,
+    "opacity": 0.5,
+    "visible": true
+  }
+}

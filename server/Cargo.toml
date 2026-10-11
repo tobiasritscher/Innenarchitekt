@@ -1,0 +1,35 @@
+[package]
+name = "innenarchitekt"
+edition.workspace = true
+version.workspace = true
+default-run = "innenarchitekt"
+
+[dependencies]
+plan-core = { path = "../crates/plan-core" }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["multipart", "macros"] }
+tower-http = { version = "0.6", features = ["fs", "trace", "compression-gzip", "limit"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "json", "chrono", "migrate"] }
+chrono = { version = "0.4", features = ["serde"] }
+object_store = "0.12"
+bytes = "1"
+futures = "0.3"
+tokio-stream = { version = "0.1", features = ["sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "brotli"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+imageproc = "0.25"
+base64 = "0.22"
+scraper = "0.22"
+regex = "1"
+mime_guess = "2"
+dotenvy = "0.15"
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }

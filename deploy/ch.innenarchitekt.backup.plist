@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ch.innenarchitekt.backup</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__BASE__/bin/backup.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__BASE__</string>
+    <!-- nightly at 03:30 (missed runs while asleep are executed on wake) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>__BASE__/logs/backup.log</string>
+    <key>StandardErrorPath</key>
+    <string>__BASE__/logs/backup.log</string>
+</dict>
+</plist>
