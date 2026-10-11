@@ -100,6 +100,11 @@ impl PlanEngine {
     pub fn cmd_delete_furniture(&self, item: &str) -> Result<JsValue, JsError> {
         to_js(&commands::delete_furniture(&self.project, id(item)?).map_err(op_err)?)
     }
+    /// Copies of furniture (with their lamps) and lamps, moved by (dx, dy): `[ops, newIds]`.
+    pub fn cmd_duplicate(&self, ids: JsValue, dx: i32, dy: i32) -> Result<JsValue, JsError> {
+        let ids: Vec<Id> = from_js(ids)?;
+        to_js(&commands::duplicate(&self.project, &ids, [dx, dy]).map_err(op_err)?)
+    }
     /// Ops that put `template` (a Light) on a surface point with outward normal; `furniture` = '' for none.
     #[allow(clippy::too_many_arguments)]
     pub fn cmd_place_light(&self, template: JsValue, x: f64, y: f64, z: f64, nx: f64, ny: f64, nz: f64, furniture: &str) -> Result<JsValue, JsError> {

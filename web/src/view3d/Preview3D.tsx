@@ -146,7 +146,8 @@ export function EditScene({ cutWalls = false, room = null }: { cutWalls?: boolea
       onClick: (e, s) => {
         e.stopPropagation()
         if (e.delta > 5 || useEditor.getState().placingAsset || recentlyPlaced() || toolActive()) return
-        useEditor.getState().select(s)
+        if (e.nativeEvent.shiftKey && s) useEditor.getState().toggleSelect(s)
+        else useEditor.getState().select(s)
       },
       onOver: (e, s) => {
         e.stopPropagation()
@@ -162,7 +163,7 @@ export function EditScene({ cutWalls = false, room = null }: { cutWalls?: boolea
 
   const onDown = useCallback(
     (e: ThreeEvent<PointerEvent>, item: FurnitureInstance) => {
-      if (e.button !== 0 || useEditor.getState().placingAsset || toolActive()) return
+      if (e.button !== 0 || useEditor.getState().placingAsset || toolActive() || e.nativeEvent.shiftKey) return
       e.stopPropagation()
       const ne = e.nativeEvent
       const hit = groundHit(ne.clientX, ne.clientY, 0)
@@ -217,7 +218,7 @@ export function EditScene({ cutWalls = false, room = null }: { cutWalls?: boolea
   /** Drag a free lamp in the horizontal plane at its own height (attached lamps move with their furniture). */
   const onLightDown = useCallback(
     (e: ThreeEvent<PointerEvent>, p: PlacedLight) => {
-      if (e.button !== 0 || useEditor.getState().placingAsset || toolActive()) return
+      if (e.button !== 0 || useEditor.getState().placingAsset || toolActive() || e.nativeEvent.shiftKey) return
       e.stopPropagation()
       useEditor.getState().select({ kind: 'light', id: p.light.id })
       if (p.light.attached_to) return

@@ -2077,3 +2077,10 @@ circle.ref-line {
   font-size: 11px;
   color: var(--muted);
 }
+.pl-frame {
+  fill: var(--select-soft);
+  stroke: var(--select);
+  stroke-width: 1px;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}

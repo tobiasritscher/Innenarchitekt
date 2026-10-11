@@ -7,13 +7,14 @@ import type { ChainPoint } from '../core/generated/ChainPoint'
 import type { Clearances } from '../core/generated/Clearances'
 import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
 import type { Op } from '../core/generated/Op'
+import type { Project } from '../core/generated/Project'
 import type { Opening } from '../core/generated/Opening'
 import type { SnapResult } from '../core/generated/SnapResult'
 import { fmtLength, parseLength } from '../core/format'
 import { instantiateAsset, movedElevation, standHeight } from '../core/furniture'
 import { newId } from '../core/engine'
 import { useAssets } from '../state/assets'
-import { useEditor, type Selection, type SelectionKind } from '../state/editor'
+import { useEditor, type Sel, type Selection, type SelectionKind } from '../state/editor'
 import { add, closestOnSegment, dist, mul, norm, polyPoints, rotate, sub, type Vec } from './geom'
 import {
   DimensionsLayer,
@@ -33,7 +34,6 @@ import {
 } from './layers'
 import {
   allBounds,
-  deleteOps,
   elementsBounds,
   flipDoor,
   furnitureCorners,
@@ -46,6 +46,7 @@ import {
   wallPoints,
   wallSideAt,
 } from './model'
+import { boxSelect, deleteManyOps, duplicateOps, moveOps } from './multi'
 import { pointAtLength, snapPoint, type SnapNode, type SnapWall, type Snapped } from './snap'
 import { useDerivedOf, type PlanSource } from './source'
 import { DEFAULT_VIEW, fitBounds, panBy, toScreen, toWorld, zoomAt, type View } from './view'
@@ -73,6 +74,8 @@ type Gesture =
   | { t: 'opening'; id: string; w0: Vec; orig: Opening; d: Vec; wallLen: number }
   | { t: 'furniture'; id: string; w0: Vec; orig: FurnitureInstance; rot: number; last: Vec; alt: boolean }
   | { t: 'light'; id: string; w0: Vec; orig: [number, number, number] }
+  | { t: 'box'; w0: Vec; add: boolean }
+  | { t: 'group'; w0: Vec; sels: Sel[]; base: Project }
 
 type WallDraft = { points: ChainPoint[]; pos: Vec[] }
 
@@ -91,7 +94,7 @@ const KIND_LABEL: Record<SelectionKind, string> = {
 }
 
 const TOOL_HINT: Record<string, string> = {
-  select: 'Klicken = auswählen · Ziehen = verschieben · Entf = löschen · R = drehen (Möbel) · F = Türanschlag',
+  select: 'Klicken = auswählen · Shift = mehrere / Rahmen ziehen · Ziehen = verschieben · ⌘D = duplizieren · Entf = löschen · R = drehen · F = Türanschlag',
   wall: 'Klicken = Punkt setzen · Zahl tippen + Enter = Länge · Doppelklick/Enter = fertig · Startpunkt = schliessen · Alt = ohne Fang',
   measure: 'Auf ein Mass klicken, neue Länge eingeben, fixe Seite wählen',
   ruler: 'Klicken = Punkt A · Klicken = Punkt B · rastet an Ecken, Wandflächen, Möbeln · Shift = waagrecht/senkrecht · Alt = ohne Fang · Esc = löschen',
@@ -121,6 +124,7 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
 
   const tool = useEditor((s) => s.tool)
   const selection = useEditor((s) => s.selection)
+  const multi = useEditor((s) => s.multi)
   const hover = useEditor((s) => s.hover)
   const snapping = useEditor((s) => s.snapping)
   const showRefImage = useEditor((s) => s.showRefImage)
@@ -165,6 +169,8 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
   const [openingFlip, setOpeningFlip] = useState<{ hinge: 'Start' | 'End'; swing: 'Left' | 'Right' }>({ hinge: 'Start', swing: 'Left' })
   const [placeRot, setPlaceRot] = useState(0)
   const [dragInfo, setDragInfo] = useState<{ kind: string; id: string } | null>(null)
+  /** Shift+drag on empty space: selection frame (plan mm). */
+  const [frame, setFrame] = useState<[Vec, Vec] | null>(null)
   const [altDown, setAltDown] = useState(false)
   const gesture = useRef<Gesture | null>(null)
   const pointers = useRef(new Map<number, Vec>())
@@ -440,13 +446,14 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
       setPlaceRot((r) => (((r + stepDeg) % 360) + 360) % 360)
       return true
     }
-    if (selection?.kind === 'furniture') {
-      const f = project.furniture.find((x) => x.id === selection.id)
-      if (f) {
-        const rot = Math.round((((f.rotation_deg + stepDeg) % 360) + 360) % 360)
-        source.commit([{ op: 'PutFurniture', item: { ...f, rotation_deg: rot } }], 'Möbel drehen')
-        return true
-      }
+    const sel = useEditor.getState().multi.filter((m) => m.kind === 'furniture')
+    const ops: Op[] = sel.flatMap((m) => {
+      const f = project.furniture.find((x) => x.id === m.id)
+      return f ? [{ op: 'PutFurniture' as const, item: { ...f, rotation_deg: Math.round((((f.rotation_deg + stepDeg) % 360) + 360) % 360) } }] : []
+    })
+    if (ops.length) {
+      source.commit(ops, 'Möbel drehen')
+      return true
     }
     return false
   }
@@ -471,7 +478,9 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
     }
     switch (tool) {
       case 'select': {
-        select(selFromHit(hit))
+        const s = selFromHit(hit)
+        if (!shift) select(s)
+        else if (s) useEditor.getState().toggleSelect(s)
         break
       }
       case 'wall':
@@ -556,8 +565,21 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
   // ---------------------------------------------------------------- drags
   const startDrag = (g: Extract<Gesture, { t: 'press' }>): boolean => {
     const hit = g.hit
-    if (tool !== 'select' || pick || !hit) return false
+    if (tool !== 'select' || pick) return false
     const w0 = g.w0
+    // Shift+drag on empty space or a room floor: selection frame
+    if (!hit || (g.shift && hit.k === 'room')) {
+      if (!g.shift) return false
+      gesture.current = { t: 'box', w0, add: true }
+      setFrame([w0, w0])
+      return true
+    }
+    const ms = useEditor.getState().multi
+    if (ms.length > 1 && (hit.k === 'furniture' || hit.k === 'light') && ms.some((m) => m.kind === hit.k && m.id === hit.id)) {
+      gesture.current = { t: 'group', w0, sels: ms, base: project }
+      setDragInfo({ kind: hit.k, id: hit.id })
+      return true
+    }
     switch (hit.k) {
       case 'node': {
         const p = nodes.get(hit.id)
@@ -608,6 +630,14 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
     let ops: Op[] = []
     try {
       switch (g.t) {
+        case 'box':
+          setFrame([g.w0, w])
+          return
+        case 'group': {
+          const d: Vec = snapOn(alt) ? [Math.round(delta[0] / 10) * 10, Math.round(delta[1] / 10) * 10] : delta
+          ops = moveOps(g.base, g.sels, d)
+          break
+        }
         case 'node': {
           const raw = add(g.orig, delta)
           const attached = new Set(floor.walls.filter((x) => x.a === g.id || x.b === g.id).map((x) => x.id))
@@ -676,6 +706,20 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
     setDragInfo(null)
     setSnap(null)
     if (!g) return
+    if (g.t === 'box') {
+      const f = frame
+      setFrame(null)
+      if (commit && f) {
+        const ed = useEditor.getState()
+        const picked = boxSelect(project, g.w0, f[1]).filter((s) => !ed.multi.some((m) => m.kind === s.kind && m.id === s.id))
+        ed.selectMany([...ed.multi, ...picked])
+      }
+      return
+    }
+    if (g.t === 'group') {
+      source.endTransient(commit, `${g.sels.length} Elemente verschieben`)
+      return
+    }
     const labels: Record<string, string> = {
       wall: 'Wand verschieben',
       opening: 'Öffnung verschieben',
@@ -819,6 +863,11 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
 
+  const duplicateSelection = () => {
+    const r = duplicateOps(source, useEditor.getState().multi)
+    if (r && r[0].length && source.commit(r[0], r[1].length > 1 ? `${r[1].length} Elemente duplizieren` : 'Duplizieren')) useEditor.getState().selectMany(r[1])
+  }
+
   // ---------------------------------------------------------------- keyboard
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {})
   keyRef.current = (e: KeyboardEvent) => {
@@ -830,6 +879,11 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
       e.stopImmediatePropagation()
       if (e.key.toLowerCase() === 'y' || e.shiftKey) source.redo()
       else source.undo()
+      return
+    }
+    if (mod && e.key.toLowerCase() === 'd' && !pick) {
+      e.preventDefault()
+      duplicateSelection()
       return
     }
     if (mod) return
@@ -876,8 +930,8 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
         return
       }
     }
-    if ((key === 'Delete' || key === 'Backspace') && ed.selection) {
-      const r = deleteOps(source, ed.selection)
+    if ((key === 'Delete' || key === 'Backspace') && ed.multi.length) {
+      const r = deleteManyOps(source, ed.multi)
       if (r && r[0].length && source.commit(r[0], r[1])) ed.select(null)
       e.preventDefault()
       return
@@ -1174,7 +1228,12 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
           {showNodes && <NodesLayer floor={floor} scale={scale} />}
           <g pointerEvents="none">
             {hover && !dragInfo && (hover.kind !== selection?.kind || hover.id !== selection?.id) && highlight(hover, 'pl-hover')}
-            {highlight(selection, 'pl-selected')}
+            {multi.map((m) => (
+              <g key={`${m.kind}:${m.id}`}>{highlight(m, 'pl-selected')}</g>
+            ))}
+            {frame && (
+              <rect className="pl-frame" x={Math.min(frame[0][0], frame[1][0])} y={Math.min(frame[0][1], frame[1][1])} width={Math.abs(frame[1][0] - frame[0][0])} height={Math.abs(frame[1][1] - frame[0][1])} />
+            )}
           </g>
           {clearanceLines && <g pointerEvents="none">{clearanceLines}</g>}
           {openingGhost && (
@@ -1245,7 +1304,7 @@ export function PlanCanvas({ source, confidence, refOpacity, pick, world }: Plan
       </div>
       <div className="pl-status">
         {pick?.hint ?? (tool === 'furniture' && !asset ? 'Möbel im Möbel-Panel wählen' : TOOL_HINT[tool])}
-        {selection && tool === 'select' && <span className="sel"> · {KIND_LABEL[selection.kind]} gewählt</span>}
+        {selection && tool === 'select' && <span className="sel"> · {multi.length > 1 ? `${multi.length} Elemente` : KIND_LABEL[selection.kind]} gewählt</span>}
       </div>
     </div>
   )

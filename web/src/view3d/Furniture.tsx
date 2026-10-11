@@ -8,7 +8,7 @@ import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
 import type { Light } from '../core/generated/Light'
 import type { PrimitiveShape } from '../core/generated/PrimitiveShape'
 import { useAssets } from '../state/assets'
-import { useEditor } from '../state/editor'
+import { useEditor, type Sel } from '../state/editor'
 import { useProject } from '../state/project'
 import { acquirePrimitive, releasePrimitive } from './geometry'
 import { furnitureMaterial, mats } from './materials3d'
@@ -28,6 +28,7 @@ const outline = {
 
 const NO_FURNITURE: FurnitureInstance[] = []
 const NO_LIGHTS: Light[] = []
+const NO_SEL: Sel[] = []
 
 export type FurnitureHandlers = PickHandlers & {
   onDown?: (e: ThreeEvent<PointerEvent>, item: FurnitureInstance) => void
@@ -37,7 +38,8 @@ export function FurnitureLayer({ pick, highlight = false, only }: { pick?: Furni
   const furniture = useProject((s) => s.project?.furniture ?? NO_FURNITURE)
   const lights = useProject((s) => s.project?.lights ?? NO_LIGHTS)
   const overlaps = useOverlaps()
-  const selection = useEditor((s) => (highlight ? s.selection : null))
+  const multi = useEditor((s) => (highlight ? s.multi : NO_SEL))
+  const selected = useMemo(() => new Set(multi.filter((m) => m.kind === 'furniture').map((m) => m.id)), [multi])
   const hover = useEditor((s) => (highlight ? s.hover : null))
   const overlapSet = useMemo(() => new Set(highlight ? overlaps : []), [overlaps, highlight])
   const withLight = useMemo(() => new Set(lights.filter((l) => l.attached_to).map((l) => l.attached_to!)), [lights])
@@ -47,7 +49,7 @@ export function FurnitureLayer({ pick, highlight = false, only }: { pick?: Furni
     <group>
       {furniture.map((f) => {
         if (only && !only(f)) return null
-        const state = selection?.kind === 'furniture' && selection.id === f.id ? 'select' : overlapSet.has(f.id) ? 'overlap' : hover?.kind === 'furniture' && hover.id === f.id ? 'hover' : null
+        const state = selected.has(f.id) ? 'select' : overlapSet.has(f.id) ? 'overlap' : hover?.kind === 'furniture' && hover.id === f.id ? 'hover' : null
         return <FurnitureItem key={f.id} item={f} pick={pick} outlineState={state} castShadow={!withLight.has(f.id)} glow={glowAll.get(f.id)} />
       })}
     </group>

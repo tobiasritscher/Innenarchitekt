@@ -356,6 +356,34 @@ pub fn delete_furniture(p: &Project, id: Id) -> Result<Vec<Op>, OpError> {
     Ok(ops)
 }
 
+/// Copies of the given furniture (with their attached lamps) and lamps, moved by `offset` in the plan.
+/// A lamp alone stays on its furniture (offset in its local frame); other ids are ignored.
+/// Returns the ops and the ids of the copies (furniture and lamps in `ids` order).
+pub fn duplicate(p: &Project, ids: &[Id], offset: [i32; 2]) -> Result<(Vec<Op>, Vec<Id>), OpError> {
+    let mut ops = Vec::new();
+    let mut out = Vec::new();
+    for &id in ids {
+        if let Some(f) = p.furniture.iter().find(|f| f.id == id) {
+            let nid = Uuid::new_v4();
+            let pos = [f.pos_mm[0] + offset[0], f.pos_mm[1] + offset[1], f.pos_mm[2]];
+            ops.push(Op::PutFurniture { item: FurnitureInstance { id: nid, pos_mm: pos, ..f.clone() } });
+            for l in p.lights.iter().filter(|l| l.attached_to == Some(id)) {
+                ops.push(Op::PutLight { light: Light { id: Uuid::new_v4(), attached_to: Some(nid), ..l.clone() } });
+            }
+            out.push(nid);
+        } else if let Some(l) = p.lights.iter().find(|l| l.id == id) {
+            if l.attached_to.is_some_and(|h| ids.contains(&h)) {
+                continue;
+            }
+            let nid = Uuid::new_v4();
+            let pos = [l.pos_mm[0] + offset[0], l.pos_mm[1] + offset[1], l.pos_mm[2]];
+            ops.push(Op::PutLight { light: Light { id: nid, pos_mm: pos, ..l.clone() } });
+            out.push(nid);
+        }
+    }
+    Ok((ops, out))
+}
+
 /// Scale and translate a floor: p' = (p − origin)·scale + origin + translate.
 /// Lengths along walls (openings) scale too; thickness is scaled and rounded to 5 mm.
 pub fn transform_floor(p: &Project, floor: Id, scale: f64, origin: [f64; 2], translate: [f64; 2]) -> Result<Vec<Op>, OpError> {
@@ -488,6 +516,52 @@ mod tests {
     use super::*;
     use crate::ops::apply_batch;
     use crate::rooms::derive_rooms;
+
+    fn chair(pos: [i32; 3], rot: f32) -> FurnitureInstance {
+        FurnitureInstance { id: Uuid::new_v4(), asset: Uuid::new_v4(), name: "Stuhl".into(), pos_mm: pos, rotation_deg: rot, dims_mm: [500, 500, 900], material: None, walkable: false, overlap_ok: false, footprint: vec![], passable: false }
+    }
+    fn lamp(pos: [i32; 3], on: Option<Id>) -> Light {
+        Light { id: Uuid::new_v4(), name: "L".into(), kind: LightKind::Point, pos_mm: pos, lumen: 800, color_temp_k: 2700, on: true, attached_to: on }
+    }
+
+    #[test]
+    fn duplicate_furniture_with_its_lamps_and_free_lamp() {
+        let mut p = Project::new(Uuid::new_v4(), "t");
+        let c = chair([1000, 1000, 0], 90.0);
+        let glow = lamp([0, 0, 900], Some(c.id));
+        let free = lamp([3000, 0, 2400], None);
+        let wall_id = Uuid::new_v4();
+        apply_batch(&mut p, &[Op::PutFurniture { item: c.clone() }, Op::PutLight { light: glow.clone() }, Op::PutLight { light: free.clone() }]).unwrap();
+        // the glow lamp is selected too, but comes along with its host only once; unknown kinds are ignored
+        let (ops, ids) = duplicate(&p, &[c.id, glow.id, free.id, wall_id], [200, -100]).unwrap();
+        apply_batch(&mut p, &ops).unwrap();
+        assert_eq!(p.furniture.len(), 2);
+        assert_eq!(p.lights.len(), 4);
+        assert_eq!(ids.len(), 2);
+        let c2 = p.furniture.iter().find(|f| f.id == ids[0]).unwrap();
+        assert_ne!(c2.id, c.id);
+        assert_eq!(c2.pos_mm, [1200, 900, 0]);
+        assert_eq!(c2.rotation_deg, 90.0);
+        let g2 = p.lights.iter().find(|l| l.attached_to == Some(c2.id)).unwrap();
+        assert_eq!(g2.pos_mm, [0, 0, 900]);
+        assert_ne!(g2.id, glow.id);
+        let f2 = p.lights.iter().find(|l| l.id == ids[1]).unwrap();
+        assert_eq!(f2.pos_mm, [3200, -100, 2400]);
+        assert_eq!(f2.attached_to, None);
+    }
+
+    #[test]
+    fn duplicate_lamp_alone_stays_on_its_furniture() {
+        let mut p = Project::new(Uuid::new_v4(), "t");
+        let c = chair([1000, 1000, 0], 0.0);
+        let spot = lamp([100, 0, 900], Some(c.id));
+        apply_batch(&mut p, &[Op::PutFurniture { item: c.clone() }, Op::PutLight { light: spot.clone() }]).unwrap();
+        let (ops, ids) = duplicate(&p, &[spot.id], [200, 0]).unwrap();
+        apply_batch(&mut p, &ops).unwrap();
+        let s2 = p.lights.iter().find(|l| l.id == ids[0]).unwrap();
+        assert_eq!(s2.attached_to, Some(c.id));
+        assert_eq!(s2.pos_mm, [300, 0, 900]);
+    }
 
     fn cp(x: i32, y: i32) -> ChainPoint {
         ChainPoint { node: None, wall: None, x, y }

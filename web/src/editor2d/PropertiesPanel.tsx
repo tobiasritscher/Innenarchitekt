@@ -14,17 +14,49 @@ import { useAssets } from '../state/assets'
 import { useEditor } from '../state/editor'
 import { LengthField, MaterialPicker, NumberField } from '../ui/fields'
 import { dist } from './geom'
-import { deleteOps, flipDoor, newRoomMeta, nodeMap, wallPoints } from './model'
+import { deleteManyOps, duplicateOps } from './multi'
+import { deleteOps, flipDoor, kindOf, newRoomMeta, nodeMap, wallPoints } from './model'
 import { useDerivedOf, usePlanSource, type PlanSource } from './source'
 
 export function PropertiesPanel() {
   const source = usePlanSource()
   const selection = useEditor((s) => s.selection)
+  const multiAll = useEditor((s) => s.multi)
   const derived = useDerivedOf(source)
   if (!source) return null
   const p = source.project
   const f = p.floors[0]
   if (!selection) return <NothingSelected />
+
+  const dup = () => {
+    const r = duplicateOps(source, useEditor.getState().multi)
+    if (r && r[0].length && source.commit(r[0], r[1].length > 1 ? `${r[1].length} Elemente duplizieren` : 'Duplizieren')) useEditor.getState().selectMany(r[1])
+  }
+
+  // after undo the selection may name elements that are gone
+  const multi = multiAll.filter((m) => m.id.startsWith('derived:') || kindOf(p, m.id))
+  if (multi.length > 1) {
+    const n = (k: string) => multi.filter((m) => m.kind === k).length
+    const parts = ([['furniture', 'Möbel'], ['light', 'Lampen'], ['wall', 'Wände'], ['opening', 'Öffnungen'], ['room', 'Räume'], ['node', 'Ecken']] as const)
+      .filter(([k]) => n(k))
+      .map(([k, l]) => `${n(k)} ${l}`)
+    const canDup = multi.some((m) => m.kind === 'furniture' || m.kind === 'light')
+    return (
+      <Section
+        title={`${multi.length} Elemente gewählt`}
+        onDuplicate={canDup ? dup : undefined}
+        onDelete={() => {
+          const r = deleteManyOps(source, multi)
+          if (r && r[0].length && source.commit(r[0], r[1])) useEditor.getState().select(null)
+        }}
+        deleteLabel="Alle löschen"
+      >
+        <p>{parts.join(' · ')}</p>
+        <p className="muted small">Shift+Klick nimmt dazu oder weg, Shift+Ziehen auf leerer Fläche wählt mit Rahmen. Ziehen an einem gewählten Möbel verschiebt alle, R dreht die Möbel.</p>
+        <button onClick={() => useEditor.getState().select(null)}>Auswahl aufheben</button>
+      </Section>
+    )
+  }
 
   const del = () => {
     const r = deleteOps(source, selection)
@@ -83,11 +115,12 @@ export function PropertiesPanel() {
     }
     case 'furniture': {
       const it = p.furniture.find((x) => x.id === selection.id)
-      return it ? <FurnitureProps src={source} it={it} onDelete={del} /> : <Gone />
+      return it ? <FurnitureProps src={source} it={it} onDelete={del} onDuplicate={dup} /> : <Gone />
     }
     case 'light': {
       const l = p.lights.find((x) => x.id === selection.id)
-      return l ? <LightProps src={source} l={l} onDelete={del} /> : <Gone />
+      // a second glow on the same object makes no sense
+      return l ? <LightProps src={source} l={l} onDelete={del} onDuplicate={l.kind.type === 'Surface' ? undefined : dup} /> : <Gone />
     }
   }
 }
@@ -102,7 +135,7 @@ function NothingSelected() {
       <p className="muted">Nichts ausgewählt. Element im Plan anklicken, um es zu bearbeiten.</p>
       <h3>Werkzeuge</h3>
       <ul className="hint-list">
-        <li><kbd>V</kbd> Auswahl – ziehen verschiebt Ecken, Wände, Öffnungen, Möbel</li>
+        <li><kbd>V</kbd> Auswahl – ziehen verschiebt Ecken, Wände, Öffnungen, Möbel · <kbd>⇧</kbd>+Klick/Ziehen = mehrere · <kbd>⌘D</kbd> duplizieren</li>
         <li><kbd>W</kbd> Wand zeichnen – Zahl tippen + Enter für exakte Länge</li>
         <li><kbd>M</kbd> Masskette – Mass anklicken, neue Länge eingeben</li>
         <li><kbd>O</kbd> Öffnung – Tür, Fenster, Durchgang auf eine Wand</li>
@@ -120,11 +153,16 @@ function NothingSelected() {
   )
 }
 
-function Section({ title, children, onDelete, deleteLabel = 'Löschen' }: { title: ReactNode; children: ReactNode; onDelete?: () => void; deleteLabel?: string }) {
+function Section({ title, children, onDelete, deleteLabel = 'Löschen', onDuplicate }: { title: ReactNode; children: ReactNode; onDelete?: () => void; deleteLabel?: string; onDuplicate?: () => void }) {
   return (
     <div className="form props">
       <h2>{title}</h2>
       {children}
+      {onDuplicate && (
+        <button onClick={onDuplicate} title="⌘D">
+          Duplizieren
+        </button>
+      )}
       {onDelete && (
         <button className="danger" onClick={onDelete}>
           {deleteLabel}
@@ -323,7 +361,7 @@ function RoomProps({ src, r, area, onDelete }: { src: PlanSource; r: RoomMeta; a
 
 // ------------------------------------------------------------------ furniture
 
-function FurnitureProps({ src, it, onDelete }: { src: PlanSource; it: FurnitureInstance; onDelete: () => void }) {
+function FurnitureProps({ src, it, onDelete, onDuplicate }: { src: PlanSource; it: FurnitureInstance; onDelete: () => void; onDuplicate: () => void }) {
   const put = (n: FurnitureInstance, label: string) => src.commit([{ op: 'PutFurniture', item: n }], label)
   const dims = (i: number, v: number) => {
     const d = [...it.dims_mm] as [number, number, number]
@@ -341,7 +379,7 @@ function FurnitureProps({ src, it, onDelete }: { src: PlanSource; it: FurnitureI
   }
   const lights = src.project.lights.filter((l) => l.attached_to === it.id)
   return (
-    <Section title="Möbel" onDelete={onDelete} deleteLabel="Möbel löschen">
+    <Section title="Möbel" onDelete={onDelete} deleteLabel="Möbel löschen" onDuplicate={onDuplicate}>
       <TextField key={it.id} label="Name" value={it.name} onCommit={(name) => put({ ...it, name }, 'Möbel umbenennen')} />
       <div className="row">
         <LengthField label="Breite" valueMm={it.dims_mm[0]} onCommit={(v) => dims(0, v)} />
@@ -440,7 +478,7 @@ function Footprint({ src, it }: { src: PlanSource; it: FurnitureInstance }) {
 
 // ------------------------------------------------------------------ light
 
-function LightProps({ src, l, onDelete }: { src: PlanSource; l: Light; onDelete: () => void }) {
+function LightProps({ src, l, onDelete, onDuplicate }: { src: PlanSource; l: Light; onDelete: () => void; onDuplicate?: () => void }) {
   const put = (n: Light, label: string) => src.commit([{ op: 'PutLight', light: n }], label)
   const setKind = (t: LightKind['type']) => {
     const kind: LightKind =
@@ -456,7 +494,7 @@ function LightProps({ src, l, onDelete }: { src: PlanSource; l: Light; onDelete:
   const owner = l.attached_to ? src.project.furniture.find((f) => f.id === l.attached_to) : undefined
   const kinds: [LightKind['type'], string][] = [['Point', 'Punkt'], ['Spot', 'Spot'], ['Area', 'Fläche'], ...(owner ? [['Surface', 'Objekt'] as [LightKind['type'], string]] : [])]
   return (
-    <Section title="Lampe" onDelete={onDelete} deleteLabel="Lampe löschen">
+    <Section title="Lampe" onDelete={onDelete} deleteLabel="Lampe löschen" onDuplicate={onDuplicate}>
       <TextField key={l.id} label="Name" value={l.name} onCommit={(name) => put({ ...l, name }, 'Lampe umbenennen')} />
       <label className="check">
         <input type="checkbox" checked={l.on} onChange={(e) => put({ ...l, on: e.target.checked }, e.target.checked ? 'Lampe ein' : 'Lampe aus')} />

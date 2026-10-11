@@ -16,6 +16,8 @@ export type Tool =
 
 export type SelectionKind = 'node' | 'wall' | 'opening' | 'room' | 'furniture' | 'light'
 export type Selection = { kind: SelectionKind; id: string } | null
+export type Sel = NonNullable<Selection>
+const same = (a: Sel, b: Sel) => a.kind === b.kind && a.id === b.id
 
 export type Quality = 'performance' | 'balanced' | 'beautiful'
 export type NavMode = 'walk' | 'dollhouse'
@@ -52,7 +54,10 @@ export type DrawDefaults = {
 type EditorState = {
   mode: Mode
   tool: Tool
+  /** Primary selection (last picked); its properties are shown. */
   selection: Selection
+  /** Everything selected (Shift+click / frame), primary included. */
+  multi: Sel[]
   hover: Selection
   /** On narrow screens only one of 2D/3D is shown. */
   narrowPane: '2d' | '3d'
@@ -75,6 +80,9 @@ type EditorState = {
   setMode: (m: Mode) => void
   setTool: (t: Tool) => void
   select: (s: Selection) => void
+  /** Shift+click: add to / remove from the selection. */
+  toggleSelect: (s: Sel) => void
+  selectMany: (s: Sel[]) => void
   setHover: (s: Selection) => void
   setNarrowPane: (p: '2d' | '3d') => void
   setShowRefImage: (v: boolean) => void
@@ -96,6 +104,7 @@ export const useEditor = create<EditorState>((set) => ({
   mode: 'model',
   tool: 'select',
   selection: null,
+  multi: [],
   hover: null,
   narrowPane: '2d',
   showRefImage: true,
@@ -131,7 +140,13 @@ export const useEditor = create<EditorState>((set) => ({
 
   setMode: (mode) => set({ mode, hover: null }),
   setTool: (tool) => set({ tool, placingAsset: null }),
-  select: (selection) => set({ selection }),
+  select: (selection) => set({ selection, multi: selection ? [selection] : [] }),
+  toggleSelect: (x) =>
+    set((st) => {
+      const multi = st.multi.some((m) => same(m, x)) ? st.multi.filter((m) => !same(m, x)) : [...st.multi, x]
+      return { multi, selection: multi[multi.length - 1] ?? null }
+    }),
+  selectMany: (multi) => set({ multi, selection: multi[multi.length - 1] ?? null }),
   setHover: (hover) => set({ hover }),
   setNarrowPane: (narrowPane) => set({ narrowPane }),
   setShowRefImage: (showRefImage) => set({ showRefImage }),

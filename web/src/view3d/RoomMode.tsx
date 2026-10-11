@@ -7,7 +7,7 @@ import { useFootprints, useRooms } from '../core/derived'
 import { fmtArea } from '../core/format'
 import type { DerivedRoom } from '../core/generated/DerivedRoom'
 import { pointInPolygon } from '../editor2d/geom'
-import { deleteOps } from '../editor2d/model'
+import { deleteManyOps, duplicateOps } from '../editor2d/multi'
 import { PropertiesPanel } from '../editor2d/PropertiesPanel'
 import { usePlanSource } from '../editor2d/source'
 import { useEditor } from '../state/editor'
@@ -75,23 +75,31 @@ export function RoomMode() {
   }, [placing])
   useEffect(() => () => useView3D.getState().setPlacingLight(null), [])
 
-  // keys: R/⇧R rotate the selected furniture, Del deletes, Esc clears the selection
+  // keys: R/⇧R rotate the selected furniture, Del deletes, ⌘D duplicates, Esc clears the selection
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {})
   keyRef.current = (e) => {
     const t = e.target as HTMLElement
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
-    if (e.metaKey || e.ctrlKey || useEditor.getState().placingAsset) return
-    const sel = useEditor.getState().selection
+    if (useEditor.getState().placingAsset) return
+    const multi = useEditor.getState().multi
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd' && source) {
+      e.preventDefault()
+      const r = duplicateOps(source, multi)
+      if (r && r[0].length && source.commit(r[0], r[1].length > 1 ? `${r[1].length} Elemente duplizieren` : 'Duplizieren')) useEditor.getState().selectMany(r[1])
+      return
+    }
+    if (e.metaKey || e.ctrlKey) return
     if (e.key === 'Escape') useEditor.getState().select(null)
-    else if ((e.key === 'Delete' || e.key === 'Backspace') && sel && source) {
-      const r = deleteOps(source, sel)
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && multi.length && source) {
+      const r = deleteManyOps(source, multi)
       if (r && r[0].length && source.commit(r[0], r[1])) useEditor.getState().select(null)
       e.preventDefault()
-    } else if ((e.key === 'r' || e.key === 'R') && sel?.kind === 'furniture') {
-      const f = project?.furniture.find((x) => x.id === sel.id)
-      if (!f) return
-      const rot = Math.round((((f.rotation_deg + (e.shiftKey ? 15 : 90)) % 360) + 360) % 360)
-      useProject.getState().commit([{ op: 'PutFurniture', item: { ...f, rotation_deg: rot } }], 'Möbel drehen')
+    } else if (e.key === 'r' || e.key === 'R') {
+      const ops = multi.flatMap((m) => {
+        const f = m.kind === 'furniture' ? project?.furniture.find((x) => x.id === m.id) : undefined
+        return f ? [{ op: 'PutFurniture' as const, item: { ...f, rotation_deg: Math.round((((f.rotation_deg + (e.shiftKey ? 15 : 90)) % 360) + 360) % 360) } }] : []
+      })
+      if (ops.length) useProject.getState().commit(ops, 'Möbel drehen')
     }
   }
   useEffect(() => {
@@ -118,7 +126,7 @@ export function RoomMode() {
         camera={{ fov: 45, near: 0.05, far: 500, position: [8, 10, 12] }}
         gl={{ antialias: true }}
         onPointerMissed={(e) => {
-          if (e.button === 0 && !useEditor.getState().placingAsset && !recentlyPlaced()) useEditor.getState().select(null)
+          if (e.button === 0 && !e.shiftKey && !useEditor.getState().placingAsset && !recentlyPlaced()) useEditor.getState().select(null)
         }}
       >
         <color attach="background" args={[bg]} />
@@ -182,7 +190,7 @@ export function RoomMode() {
       ) : placingLight ? (
         <div className="v3d-overlay v3d-hint">{LAMP_LABEL[placingLight]} platzieren: Stelle an der Decke klicken · Shift = weitere · Esc = abbrechen</div>
       ) : (
-        <div className="v3d-overlay v3d-hint">Ziehen dreht um den Raum · Scrollen zoomt · Möbel ziehen verschiebt · R dreht · Entf löscht · Tür anklicken = auf/zu · D misst</div>
+        <div className="v3d-overlay v3d-hint">Ziehen dreht um den Raum · Scrollen zoomt · Möbel ziehen verschiebt · ⇧+Klick = mehrere · ⌘D dupliziert · R dreht · Entf löscht · Tür anklicken = auf/zu · D misst</div>
       )}
     </div>
   )
