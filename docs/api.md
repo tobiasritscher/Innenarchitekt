@@ -49,7 +49,6 @@ Plan-Koordinaten = Bildpixel × `mm_per_px` (Ursprung oben links). Die Ops werde
 | DELETE | `/api/assets/{id}` | – | 204 |
 | POST | `/api/assets/ikea` | `{url}` (Produktlink oder Planer-Link `…/addon-app/storageone/<range>/…#/vpc/<CODE>` → Kombination als ein GLB aus der Planer-Teileliste) | `Asset` (gecacht nach Artikelnummer; GLB in Object-Store; `warnings` bei >3 % Abweichung BBox vs. Produktmasse oder fehlendem 3D-Modell) |
 | POST | `/api/assets/upload` | multipart: `file` (GLB), `name`, `w_mm`, `d_mm`, `h_mm` | `Asset` |
-| POST | `/api/assets/from-photo` | multipart: `photo` (JPG/PNG), `name`, `w_mm`, `d_mm`, `h_mm` (mind. eines; fehlende nach Modell-Proportionen), `seed?` | `{job_id}` – Job `photo3d` (TRELLIS.2, eigene Queue, ~4 Min.), Ergebnis = `Asset` (kind `Photo`) |
 | POST | `/api/assets/primitive` | `{shape: PrimitiveShape, name?, dims_mm?: [w,d,h]}` | `Asset` (kein Modell; Mesh kommt aus WASM `primitive()`) |
 | GET | `/api/assets/{id}/model.glb` | – | GLB (`model/gltf-binary`) |
 | GET | `/api/files/{key}` | – | Datei aus dem Object-Store (Referenzbilder, Thumbnails) |

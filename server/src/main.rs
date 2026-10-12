@@ -14,7 +14,6 @@ mod ikea;
 mod ikea_planner;
 mod jobs;
 mod llm;
-mod photo3d;
 mod projects;
 mod state;
 #[cfg(test)]
@@ -49,7 +48,6 @@ async fn app_config(State(st): State<AppState>) -> Json<Value> {
     Json(json!({
         "llm_enabled": st.llm.is_some(),
         "llm_model": st.llm.as_ref().map(|l| l.model.clone()).unwrap_or_default(),
-        "photo3d_enabled": st.cfg.photo3d_dir.is_some(),
     }))
 }
 
@@ -72,7 +70,6 @@ pub fn router(st: AppState) -> Router {
         .route("/api/assets/ikea", post(assets::import_ikea))
         .route("/api/assets/upload", post(assets::upload))
         .route("/api/assets/primitive", post(assets::create_primitive))
-        .route("/api/assets/from-photo", post(photo3d::upload))
         .route("/api/assets/{id}", get(assets::get).delete(assets::delete))
         .route("/api/assets/{id}/model.glb", get(assets::model))
         .route("/api/files/{*key}", get(files::get_file))
@@ -174,7 +171,6 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let worker = tokio::spawn(jobs::worker(st.clone(), &[jobs::KIND_FLOORPLAN]));
-    let photo_worker = tokio::spawn(jobs::worker(st.clone(), &[jobs::KIND_PHOTO3D]));
     let app = router(st);
     let listener = tokio::net::TcpListener::bind(&bind).await.with_context(|| format!("BIND {bind} nicht möglich"))?;
     tracing::info!("Innenarchitekt läuft auf http://{bind}");
@@ -195,7 +191,6 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("Verbindungen nicht rechtzeitig geschlossen – erzwinge Ende");
     }
     let _ = tokio::time::timeout(Duration::from_secs(5), worker).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), photo_worker).await;
     db.close().await;
     Ok(())
 }

@@ -17,8 +17,6 @@ pub struct Config {
     pub ikea_country: String,
     pub ikea_lang: String,
     pub ikea_rotera_client_id: String,
-    /// trellis-mac checkout (with .venv and generate.py) for «Möbel aus Foto»; None = feature off.
-    pub photo3d_dir: Option<PathBuf>,
 }
 
 fn var(name: &str) -> Option<String> {
@@ -40,7 +38,6 @@ impl Config {
             ikea_country: var("IKEA_COUNTRY").unwrap_or_else(|| "ch".into()).to_lowercase(),
             ikea_lang: var("IKEA_LANG").unwrap_or_else(|| "de".into()).to_lowercase(),
             ikea_rotera_client_id: var("IKEA_ROTERA_CLIENT_ID").unwrap_or_else(|| DEFAULT_ROTERA_CLIENT_ID.into()),
-            photo3d_dir: var("PHOTO3D_DIR").map(PathBuf::from).filter(|d| d.join("generate.py").is_file() && d.join(".venv/bin/python").is_file()),
         })
     }
 }

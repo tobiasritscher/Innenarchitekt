@@ -48,7 +48,6 @@ async fn spawn() -> Option<TestServer> {
         ikea_country: "ch".into(),
         ikea_lang: "de".into(),
         ikea_rotera_client_id: crate::config::DEFAULT_ROTERA_CLIENT_ID.into(),
-        photo3d_dir: None,
     };
     std::fs::create_dir_all(dir.join("web/assets")).unwrap();
     std::fs::write(dir.join("web/index.html"), "<!doctype html><title>IA</title>").unwrap();

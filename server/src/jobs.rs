@@ -24,7 +24,6 @@ use crate::floorplan::{self, AnalyzeInput};
 use crate::state::AppState;
 
 pub const KIND_FLOORPLAN: &str = "floorplan";
-pub const KIND_PHOTO3D: &str = "photo3d";
 const JOB_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Serialize, Clone, Debug)]
@@ -268,7 +267,6 @@ pub async fn worker(st: AppState, kinds: &'static [&'static str]) {
 async fn run_job(st: &AppState, job: Job, payload: Value) -> Job {
     let outcome = match job.kind.as_str() {
         KIND_FLOORPLAN => run_floorplan(st, job.id, payload).await,
-        KIND_PHOTO3D => crate::photo3d::run(st, job.id, payload).await,
         other => Err(format!("Unbekannter Job-Typ «{other}»")),
     };
     let mut fin = job.clone();

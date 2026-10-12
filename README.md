@@ -61,20 +61,9 @@ Gelesen aus der Umgebung bzw. aus `.env` im Arbeitsverzeichnis.
 | `LLM_MODEL` | `claude-opus-5-5` | Modellname |
 | `IKEA_COUNTRY` / `IKEA_LANG` | `ch` / `de` | Markt für IKEA-Import (bei Links wird der Markt aus der URL genommen) |
 | `IKEA_ROTERA_CLIENT_ID` | IKEA-Web-Default | Client-ID der IKEA-3D-Viewer-API, nur falls IKEA sie ändert |
-| `PHOTO3D_DIR` | – | trellis-mac-Checkout für «Möbel aus Foto» (TRELLIS.2, nativ auf Apple Silicon); fehlt → Funktion aus. Einrichten mit `deploy/photo3d-setup.sh` |
 | `RUST_LOG` | `innenarchitekt=info,tower_http=info,sqlx=warn` | Log-Level |
 
-### Möbel aus Foto (TRELLIS.2)
-
-Läuft nativ auf dem Server (Docker hat keinen Metal-Zugriff): `bash ~/innenarchitekt/bin/photo3d-setup.sh` klont
-[trellis-mac](https://github.com/shivampkumar/trellis-mac), legt ein Python-3.11-venv an und patcht das Dreiecksziel
-(`IA_TARGET_FACES`, wir nehmen 50'000). Die Gewichte (~15 GB) landen beim ersten Lauf in `~/.cache/huggingface`;
-DINOv3 und RMBG-2.0 sind «gated» → einmal mit dem HF-Konto des Tokens Zugriff anfordern. RMBG-2.0 ist CC BY-NC
-(nur privat). Metal-Beschleunigung braucht Xcode + Metal Toolchain (`DEVELOPER_DIR=/Applications/Xcode.app/…`,
-`xcodebuild -downloadComponent MetalToolchain`), Eigen (`brew install eigen`) und `-std=c++20` in den
-`deps/*/setup.py` (Torch ≥ 2.14); sonst langsamerer Python-Baker. Pro Modell ca. 4 Min. auf dem M3 Ultra (davon ~2.5 Min. Laden des Modells), eigene Job-Queue.
-
-## Deployment (Mac «jarvis»)
+## Deployment (Mac mini «asgard»)
 
 Das Binary wird lokal gebaut (Apple Silicon, gleiche Architektur) und per SSH kopiert; auf dem Server braucht es kein Rust.
 
@@ -89,7 +78,17 @@ Das Skript
 - installiert die LaunchAgents `ch.innenarchitekt.server` (KeepAlive, Logs in `~/innenarchitekt/logs/server.log`) und `ch.innenarchitekt.backup` und lädt sie neu,
 - prüft danach `GET /api/health`.
 
-Der Server lauscht nur auf `127.0.0.1:8090`. Für den Zugriff von aussen (Tailscale mit HTTPS – WebGPU braucht einen sicheren Kontext) einen Reverse-Proxy-Eintrag von Hand ergänzen; das Skript ändert weder Caddy noch andere Dienste. Der Proxy sollte `X-Forwarded-Proto: https` setzen, damit das Login-Cookie als `Secure` markiert wird. KI aktivieren: `LLM_API_KEY` in `~/innenarchitekt/.env` setzen, dann `launchctl kickstart -k gui/$(id -u)/ch.innenarchitekt.server`.
+Produktiv läuft die App unter **https://innenarchitekt.ritscher.ch** (bis 12.10.2026 auf «jarvis», nur per SSH-Tunnel):
+
+- **Caddy** (Docker/OrbStack auf asgard, `~/docker/caddy/Caddyfile`) terminiert TLS (DNS-01 über Cloudflare) und
+  leitet auf `192.168.1.92:8090` weiter. Caddy setzt `X-Forwarded-Proto` selbst, das Login-Cookie wird damit `Secure`.
+- **`BIND=0.0.0.0:8090`** in der `.env` auf asgard: Der Caddy-Container erreicht den `localhost` des Macs nicht,
+  nur die LAN-IP. Die App ist damit auch im Heimnetz direkt erreichbar, das `AUTH_TOKEN` gilt dort genauso.
+- **DNS:** CNAME `innenarchitekt` → `rehalp.skynetmedia.de` (nur DNS, nicht proxied) in der Cloudflare-Zone
+  `ritscher.ch`. Ein eigener Eintrag ist nötig, weil `*.ritscher.ch` woandershin zeigt.
+
+Das Skript ändert weder Caddy noch DNS. `.env` nach Änderungen (z. B. `AUTH_TOKEN`, `LLM_API_KEY`) übernehmen:
+`launchctl kickstart -k gui/$(id -u)/ch.innenarchitekt.server`.
 
 ### Backup
 

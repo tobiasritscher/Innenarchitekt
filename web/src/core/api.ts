@@ -51,7 +51,7 @@ export type Job = {
   result: FloorplanProposal | null
   error: string | null
 }
-export type AppConfig = { llm_enabled: boolean; llm_model: string; photo3d_enabled?: boolean }
+export type AppConfig = { llm_enabled: boolean; llm_model: string }
 
 export const api = {
   login: (token: string) => req<void>('POST', '/auth', { token }),
@@ -125,14 +125,6 @@ export const api = {
   listAssets: () => req<Asset[]>('GET', '/assets'),
   deleteAsset: (id: string) => req<void>('DELETE', `/assets/${id}`),
   importIkea: (url: string) => req<Asset>('POST', '/assets/ikea', { url }),
-  /** «Möbel aus Foto»: starts a job (TRELLIS.2, several minutes); the job result is the new asset. */
-  fromPhoto: (photo: Blob, name: string, dims: (number | null)[]) => {
-    const fd = new FormData()
-    fd.append('photo', photo, 'foto.jpg')
-    fd.append('name', name)
-    ;['w_mm', 'd_mm', 'h_mm'].forEach((k, i) => dims[i] != null && fd.append(k, String(dims[i])))
-    return req<{ job_id: string }>('POST', '/assets/from-photo', fd)
-  },
   uploadGlb: (file: File, name: string, dims: [number, number, number]) => {
     const fd = new FormData()
     fd.append('file', file)

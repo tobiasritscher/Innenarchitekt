@@ -1,15 +1,15 @@
 #!/bin/bash
-# Build locally (macOS arm64) and deploy to the server ("jarvis") as a user LaunchAgent.
+# Build locally (macOS arm64) and deploy to the server ("asgard") as a user LaunchAgent.
 #
 #   deploy/deploy.sh                 # build + deploy
 #   deploy/deploy.sh --skip-build    # deploy existing artefacts
 #
-# Env overrides: DEPLOY_HOST (default jarvis), REMOTE_BASE (default ~/innenarchitekt, i.e. $HOME of the
+# Env overrides: DEPLOY_HOST (default asgard), REMOTE_BASE (default ~/innenarchitekt, i.e. $HOME of the
 # remote user), PG_BIN (remote, default /opt/homebrew/opt/postgresql@16/bin).
 # Never touches ~/innenarchitekt/data, ~/innenarchitekt/.env (after first run) or other services.
 set -euo pipefail
 
-HOST="${DEPLOY_HOST:-jarvis}"
+HOST="${DEPLOY_HOST:-asgard}"
 PG_BIN="${PG_BIN:-/opt/homebrew/opt/postgresql@16/bin}"
 LABEL="ch.innenarchitekt.server"
 BACKUP_LABEL="ch.innenarchitekt.backup"
@@ -54,7 +54,6 @@ fi
 say "Dateien übertragen"
 rsync -az "$BIN" "$HOST:$BASE/bin/innenarchitekt.new"
 rsync -az "$ROOT/deploy/backup.sh" "$HOST:$BASE/bin/backup.sh"
-rsync -az "$ROOT/deploy/photo3d-setup.sh" "$HOST:$BASE/bin/photo3d-setup.sh"
 rsync -az --delete "$ROOT/web/dist/" "$HOST:$BASE/web/"
 ssh "$HOST" "chmod +x '$BASE/bin/innenarchitekt.new' '$BASE/bin/backup.sh' && mv -f '$BASE/bin/innenarchitekt.new' '$BASE/bin/innenarchitekt'"
 
