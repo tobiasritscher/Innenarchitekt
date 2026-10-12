@@ -26,8 +26,8 @@ fn var(name: &str) -> Option<String> {
 impl Config {
     pub fn from_env() -> Result<Self> {
         let auth_token = var("AUTH_TOKEN").context("AUTH_TOKEN ist nicht gesetzt – der Server startet nicht ohne Token")?;
-        if auth_token.len() < 16 {
-            bail!("AUTH_TOKEN ist zu kurz (mindestens 16 Zeichen)");
+        if auth_token.len() < 12 {
+            bail!("AUTH_TOKEN ist zu kurz (mindestens 12 Zeichen)");
         }
         Ok(Config {
             database_url: var("DATABASE_URL").context("DATABASE_URL ist nicht gesetzt")?,
