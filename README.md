@@ -52,7 +52,7 @@ Gelesen aus der Umgebung bzw. aus `.env` im Arbeitsverzeichnis.
 | Variable | Default | Bedeutung |
 |---|---|---|
 | `DATABASE_URL` | – (Pflicht) | Postgres-Verbindung |
-| `AUTH_TOKEN` | – (Pflicht, ≥ 12 Zeichen) | Statisches Login-Token (Header `Authorization: Bearer …` oder Cookie `ia_token`) |
+| `AUTH_TOKEN` | – (Pflicht, ≥ 12 Zeichen) | Statisches Login-Token (Header `Authorization: Bearer …` oder Cookie `ia_token`); 10 falsche Tokens pro IP → 15 Min. gesperrt (429) |
 | `BIND` | `127.0.0.1:8090` | Listen-Adresse |
 | `DATA_DIR` | `./data` | Object-Store (Uploads, entzerrte Grundrisse, GLB-Modelle) unter `DATA_DIR/objects` |
 | `WEB_DIR` | `./web/dist` | Gebautes Frontend (SPA-Fallback auf `index.html`) |

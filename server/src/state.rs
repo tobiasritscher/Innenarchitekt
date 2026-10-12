@@ -22,6 +22,8 @@ pub struct AppState {
     pub jobs_tx: broadcast::Sender<Job>,
     /// Wakes the job worker when a job is enqueued.
     pub job_notify: Arc<Notify>,
+    /// Failed logins per client IP (brute-force brake).
+    pub auth_fails: Arc<crate::auth::FailGuard>,
     /// Flips to `true` on shutdown (ends SSE streams and the worker).
     pub shutdown: watch::Receiver<bool>,
 }

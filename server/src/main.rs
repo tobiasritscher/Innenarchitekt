@@ -121,6 +121,7 @@ pub fn build_state(cfg: Config, db: sqlx::PgPool, shutdown: watch::Receiver<bool
         ikea_http: ikea::http_client(),
         jobs_tx,
         job_notify: Arc::new(Notify::new()),
+        auth_fails: Arc::default(),
         shutdown,
     })
 }
@@ -177,7 +178,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut srx = shutdown_tx.subscribe();
     let server = tokio::spawn(async move {
-        axum::serve(listener, app)
+        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
             .with_graceful_shutdown(async move {
                 let _ = srx.wait_for(|v| *v).await;
             })
