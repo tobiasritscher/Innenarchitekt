@@ -1,6 +1,6 @@
 // Sun + physical sky + diffuse sky light for view mode. Also sets the global light scale (exposure).
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import { BackSide, CircleGeometry, Color, Object3D, Vector3, type DirectionalLight, type HemisphereLight, type ShaderMaterial } from 'three'
 import { Sky } from 'three/examples/jsm/objects/Sky.js'
 import { sunPosition } from '../core/engine'
@@ -79,6 +79,9 @@ export function Daylight({ walk, bounds, mapSize, lampLux }: { walk: boolean; bo
   const scale = (exposure * (walk ? 3 : 2.6)) / keyLux
   live.lightScale = scale
   live.sky = { skyLux: dl.skyLux, sunLux: dl.sunLux, sinEl, day: dl.day, clearness }
+  // values are applied in useFrame: a demand frameloop needs a frame after each change
+  const invalidate = useThree((s) => s.invalidate)
+  useLayoutEffect(() => invalidate())
 
   const D = bounds.radius + 30
   const r3 = Math.hypot(bounds.radius, 1.5) + 0.5

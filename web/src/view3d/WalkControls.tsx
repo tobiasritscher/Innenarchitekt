@@ -13,6 +13,8 @@ import { live, useView3D } from './store'
 const SPEED = 1.4 // m/s
 const RADIUS = 250 // mm
 const LOOK = 0.0024
+/** While only the camera moves, shadow maps are refreshed every n-th frame (they don't depend on the view). */
+const SHADOW_EVERY = 4
 
 function isFormTarget(t: EventTarget | null) {
   const el = t as HTMLElement | null
@@ -29,6 +31,28 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
   /** Smoothed floor height under the walker (podium/steps), mm. */
   const floorMm = useRef<number | null>(null)
   const invalidate = useThree((s) => s.invalidate)
+  /** Camera input since the last frame / during the last frame (demand frameloop bookkeeping). */
+  const looked = useRef(false)
+  const moving = useRef(false)
+  const shadowN = useRef(0)
+
+  // demand frameloop: input from outside the canvas (mini map, joystick) asks for a frame
+  useEffect(() => {
+    live.wake = invalidate
+    return () => {
+      live.wake = () => {}
+    }
+  }, [invalidate])
+  useEffect(() => invalidate(), [eye, invalidate])
+
+  // shadows are re-rendered by hand: skipped on most frames that only move the camera
+  useEffect(() => {
+    gl.shadowMap.autoUpdate = false
+    gl.shadowMap.needsUpdate = true
+    return () => {
+      gl.shadowMap.autoUpdate = true
+    }
+  }, [gl])
 
   // initial pose: saved walker, else the largest room's label point
   useEffect(() => {
@@ -56,6 +80,7 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
       if (isFormTarget(e.target) || e.metaKey || e.ctrlKey) return
       keys.current.add(e.code)
       if (e.code.startsWith('Arrow')) e.preventDefault()
+      invalidate()
     }
     const up = (e: KeyboardEvent) => keys.current.delete(e.code)
     const blur = () => keys.current.clear()
@@ -63,6 +88,8 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
       const w = live.walker
       w.yaw += dx * LOOK
       w.pitch = Math.max(-1.35, Math.min(1.35, w.pitch - dy * LOOK))
+      looked.current = true
+      invalidate()
     }
     const onMouse = (e: MouseEvent) => {
       if (document.pointerLockElement === el) look(e.movementX, e.movementY)
@@ -112,12 +139,15 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
       window.removeEventListener('pointerup', pUp)
       if (document.pointerLockElement === el) document.exitPointerLock()
     }
-  }, [gl])
+  }, [gl, invalidate])
 
   const tmp = useRef(new Vector3())
   useFrame((_, dtRaw) => {
-    const dt = Math.min(dtRaw, 0.1)
+    // after an idle pause the clock delta spans the whole pause: start moving with one nominal frame
+    const dt = Math.min(dtRaw, moving.current ? 0.1 : 1 / 30)
     const w = live.walker
+    let camOnly = looked.current
+    looked.current = false
     if (live.teleport) {
       w.x = live.teleport.x
       w.y = live.teleport.y
@@ -138,6 +168,12 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
     side += live.joy.x
     w.yaw += turn * dt * 1.8
     const len = Math.hypot(fwd, side)
+    const wasMoving = moving.current
+    moving.current = len > 0.01 || turn !== 0
+    if (moving.current) {
+      camOnly = true
+      invalidate() // keep frames coming while a key is held
+    }
     if (len > 0.01) {
       const n = Math.max(1, len)
       const speed = SPEED * (k.has('ShiftLeft') || k.has('ShiftRight') ? 2.5 : 1) * 1000 * dt
@@ -166,8 +202,12 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
     const cp = Math.cos(w.pitch)
     tmp.current.set(camera.position.x + cp * Math.cos(w.yaw), camera.position.y + Math.sin(w.pitch), camera.position.z + cp * Math.sin(w.yaw))
     camera.lookAt(tmp.current)
+    // one more frame after stopping: full shadow update, final pose to the mini map
+    if (wasMoving && !moving.current) invalidate()
+    gl.shadowMap.needsUpdate = !camOnly || live.shadowsDirty || ++shadowN.current % SHADOW_EVERY === 0
+    live.shadowsDirty = false
     acc.current += dt
-    if (acc.current > 0.1) {
+    if (acc.current > 0.1 || (wasMoving && !moving.current)) {
       acc.current = 0
       const cur = useView3D.getState().walker
       if (!cur || Math.abs(cur.x - w.x) > 5 || Math.abs(cur.y - w.y) > 5 || Math.abs(cur.yaw - w.yaw) > 0.02) useView3D.getState().setWalker({ x: w.x, y: w.y, yaw: w.yaw })

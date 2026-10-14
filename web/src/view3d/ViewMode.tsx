@@ -1,5 +1,5 @@
 // View mode: dollhouse orbit or first-person walk-through with daylight and artificial light.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { EffectComposer, N8AO, ToneMapping } from '@react-three/postprocessing'
@@ -7,6 +7,8 @@ import { ToneMappingMode } from 'postprocessing'
 import { PCFShadowMap, type PerspectiveCamera, type WebGLRenderer } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { useEditor, type Quality } from '../state/editor'
+import { useProject } from '../state/project'
+import { useAssets } from '../state/assets'
 import { fmtNumber } from '../core/format'
 import { Building } from './Building'
 import { useBounds, type Bounds } from './bounds'
@@ -42,6 +44,7 @@ export function ViewMode() {
   return (
     <div className="v3d-view">
       <Canvas
+        frameloop={tracing ? 'always' : 'demand'}
         shadows={{ enabled: true, type: PCFShadowMap }}
         dpr={dpr}
         gl={{ antialias: true, preserveDrawingBuffer: true }}
@@ -80,6 +83,11 @@ function ViewScene() {
   const bounds = useBounds()
   const lampLux = useLampLux()
   const walk = nav === 'walk'
+  // demand frameloop: redraw after model changes, also ones made outside the canvas
+  const invalidate = useThree((s) => s.invalidate)
+  const revision = useProject((s) => s.revision)
+  const assets = useAssets((s) => s.assets)
+  useLayoutEffect(() => invalidate(), [revision, assets, nav, quality, invalidate])
   return (
     <>
       <Daylight walk={walk} bounds={bounds} mapSize={q.sunMap} lampLux={lampLux} />
@@ -95,6 +103,7 @@ function ViewScene() {
 function Dollhouse({ bounds }: { bounds: Bounds }) {
   const camera = useThree((s) => s.camera) as PerspectiveCamera
   const controls = useThree((s) => s.controls) as OrbitControlsImpl | null
+  const invalidate = useThree((s) => s.invalidate)
   useEffect(() => {
     if (!controls) return
     const c = bounds.center
@@ -104,6 +113,7 @@ function Dollhouse({ bounds }: { bounds: Bounds }) {
     camera.updateProjectionMatrix()
     fitCamera(camera, controls, c, r)
     controls.update()
+    invalidate()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controls])
   return <OrbitControls makeDefault enableDamping dampingFactor={0.12} maxPolarAngle={Math.PI * 0.47} minDistance={2} maxDistance={120} />

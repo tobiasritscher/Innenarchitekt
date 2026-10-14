@@ -1,6 +1,6 @@
 // Artificial light: lamp markers (preview) and physically based lamps with a shadow budget (view mode).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useFrame, type ThreeEvent } from '@react-three/fiber'
+import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Color, DoubleSide, MeshBasicMaterial, MeshStandardMaterial, Object3D, SphereGeometry, Vector3, type PointLight, type RectAreaLight, type SpotLight } from 'three'
 import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
 import type { Light } from '../core/generated/Light'
@@ -134,12 +134,15 @@ function Lamp({ p, castShadow, mapSize }: { p: PlacedLight; castShadow: boolean;
   const mat = useBulbMaterial(l)
   const host = useProject((s) => (l.attached_to ? s.project?.furniture.find((f) => f.id === l.attached_to) : undefined))
   const dir = lightDir(l, host) ?? [0, 0, -1]
+  const invalidate = useThree((s) => s.invalidate)
+  useLayoutEffect(() => invalidate(), [base, invalidate])
   useFrame(() => {
     if (ref.current) ref.current.intensity = base * live.lightScale
   })
   useLayoutEffect(() => {
     const li = ref.current as PointLight | SpotLight | null
     if (!li || !('shadow' in li) || !li.shadow) return
+    if (castShadow) live.shadowsDirty = true
     if (li.shadow.mapSize.x !== mapSize) {
       li.shadow.mapSize.set(mapSize, mapSize)
       li.shadow.map?.dispose()
@@ -189,6 +192,8 @@ function SurfaceLamp({ l }: { l: Light }) {
   const dims = (f?.dims_mm ?? [1, 1, 1]) as V3
   const base = l.on && f ? surfaceIntensity(face, dims, l.lumen) : 0
   const lum = l.on && f ? glowLuminance(face, dims, l.lumen) : 0
+  const invalidate = useThree((s) => s.invalidate)
+  useLayoutEffect(() => invalidate(), [base, lum, invalidate])
   useFrame(() => {
     if (ref.current) ref.current.intensity = base * live.lightScale
     // same physical scale as the lamps, so the glow reads right live and in the photo

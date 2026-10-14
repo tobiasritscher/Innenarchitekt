@@ -77,6 +77,10 @@ export const live = {
   lightScale: 1,
   /** Virtual joystick (touch): x = strafe right, y = forward, each −1…1. */
   joy: { x: 0, y: 0 },
+  /** Requests a frame from the walk view (demand frameloop) – for input from outside the canvas. */
+  wake: () => {},
+  /** A light started casting shadows: its map must be rendered on the next frame (walk view skips shadow updates). */
+  shadowsDirty: false,
   /** Current daylight (physical units, set by Daylight) – the path tracer builds its sky from it. */
   sky: { skyLux: 16000, sunLux: 0, sinEl: 0.7, day: 1, clearness: 0.85 },
 }

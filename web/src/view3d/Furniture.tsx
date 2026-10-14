@@ -1,7 +1,7 @@
 // Furniture instances: primitive meshes from the core or normalised GLB models.
 import { Component, Suspense, useEffect, useLayoutEffect, useMemo, type ReactNode } from 'react'
 import { Box3, EdgesGeometry, LineBasicMaterial, MeshStandardMaterial, Vector3, type Object3D, type Material, type Mesh } from 'three'
-import { useFrame, type ThreeEvent } from '@react-three/fiber'
+import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import { useOverlaps } from '../core/derived'
 import type { FurnitureInstance } from '../core/generated/FurnitureInstance'
@@ -73,6 +73,8 @@ function useGlowMaterial(l: Light | undefined, dims: V3): MeshStandardMaterial |
     if (mat && l) mat.emissive.copy(kelvinToColor(l.color_temp_k))
   }, [mat, l])
   const lum = l?.on ? glowLuminance('All', dims, l.lumen) : 0
+  const invalidate = useThree((s) => s.invalidate)
+  useLayoutEffect(() => invalidate(), [lum, invalidate])
   // physical scale like the lamps (live and photo)
   useFrame(() => {
     if (mat) mat.emissiveIntensity = lum * live.lightScale

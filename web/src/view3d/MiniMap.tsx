@@ -24,6 +24,7 @@ export function MiniMap() {
     const yaw = live.walker.yaw
     const w = { x: Math.round(p.x), y: Math.round(p.y), yaw }
     live.teleport = w
+    live.wake()
     live.walker = { ...w, pitch: 0 }
     useView3D.getState().setWalker(w)
     useEditor.getState().setView({ walker: w, nav: 'walk' })
@@ -67,6 +68,7 @@ export function Joystick() {
       dy = (dy / l) * R
     }
     live.joy = { x: dx / R, y: -dy / R }
+    live.wake()
     if (knob.current) knob.current.style.transform = `translate(${dx}px, ${dy}px)`
   }
   const reset = () => {
