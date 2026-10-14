@@ -15,6 +15,8 @@ const RADIUS = 250 // mm
 const LOOK = 0.0024
 /** While only the camera moves, shadow maps are refreshed every n-th frame (they don't depend on the view). */
 const SHADOW_EVERY = 4
+/** Camera counts as moving until this long after the last input (ms): reduced resolution, shadows throttled. */
+const SETTLE_MS = 250
 
 function isFormTarget(t: EventTarget | null) {
   const el = t as HTMLElement | null
@@ -31,8 +33,8 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
   /** Smoothed floor height under the walker (podium/steps), mm. */
   const floorMm = useRef<number | null>(null)
   const invalidate = useThree((s) => s.invalidate)
-  /** Camera input since the last frame / during the last frame (demand frameloop bookkeeping). */
-  const looked = useRef(false)
+  /** Time of the last camera input (performance.now), and whether a key/joystick moved the walker last frame. */
+  const lastInput = useRef(-Infinity)
   const moving = useRef(false)
   const shadowN = useRef(0)
 
@@ -44,6 +46,7 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
     }
   }, [invalidate])
   useEffect(() => invalidate(), [eye, invalidate])
+  useEffect(() => () => useView3D.getState().setMoving(false), [])
 
   // shadows are re-rendered by hand: skipped on most frames that only move the camera
   useEffect(() => {
@@ -88,7 +91,7 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
       const w = live.walker
       w.yaw += dx * LOOK
       w.pitch = Math.max(-1.35, Math.min(1.35, w.pitch - dy * LOOK))
-      looked.current = true
+      lastInput.current = performance.now()
       invalidate()
     }
     const onMouse = (e: MouseEvent) => {
@@ -146,8 +149,6 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
     // after an idle pause the clock delta spans the whole pause: start moving with one nominal frame
     const dt = Math.min(dtRaw, moving.current ? 0.1 : 1 / 30)
     const w = live.walker
-    let camOnly = looked.current
-    looked.current = false
     if (live.teleport) {
       w.x = live.teleport.x
       w.y = live.teleport.y
@@ -168,12 +169,14 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
     side += live.joy.x
     w.yaw += turn * dt * 1.8
     const len = Math.hypot(fwd, side)
-    const wasMoving = moving.current
     moving.current = len > 0.01 || turn !== 0
-    if (moving.current) {
-      camOnly = true
-      invalidate() // keep frames coming while a key is held
-    }
+    const now = performance.now()
+    if (moving.current) lastInput.current = now
+    // while moving (and briefly after): frames keep coming, shadows mostly reused, ViewMode lowers the resolution
+    const busy = now - lastInput.current < SETTLE_MS
+    const wasBusy = useView3D.getState().moving
+    if (busy) invalidate()
+    if (busy !== wasBusy) useView3D.getState().setMoving(busy)
     if (len > 0.01) {
       const n = Math.max(1, len)
       const speed = SPEED * (k.has('ShiftLeft') || k.has('ShiftRight') ? 2.5 : 1) * 1000 * dt
@@ -202,12 +205,11 @@ export function WalkControls({ bounds }: { bounds: Bounds }) {
     const cp = Math.cos(w.pitch)
     tmp.current.set(camera.position.x + cp * Math.cos(w.yaw), camera.position.y + Math.sin(w.pitch), camera.position.z + cp * Math.sin(w.yaw))
     camera.lookAt(tmp.current)
-    // one more frame after stopping: full shadow update, final pose to the mini map
-    if (wasMoving && !moving.current) invalidate()
-    gl.shadowMap.needsUpdate = !camOnly || live.shadowsDirty || ++shadowN.current % SHADOW_EVERY === 0
+    // the first settled frame (full resolution, set via ViewMode) renders all shadows; final pose to the mini map
+    gl.shadowMap.needsUpdate = !busy || live.shadowsDirty || ++shadowN.current % SHADOW_EVERY === 0
     live.shadowsDirty = false
     acc.current += dt
-    if (acc.current > 0.1 || (wasMoving && !moving.current)) {
+    if (acc.current > 0.1 || (wasBusy && !busy)) {
       acc.current = 0
       const cur = useView3D.getState().walker
       if (!cur || Math.abs(cur.x - w.x) > 5 || Math.abs(cur.y - w.y) > 5 || Math.abs(cur.yaw - w.yaw) > 0.02) useView3D.getState().setWalker({ x: w.x, y: w.y, yaw: w.yaw })

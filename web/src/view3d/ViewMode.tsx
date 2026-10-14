@@ -21,6 +21,7 @@ import { setWallCut } from './materials3d'
 import { Joystick, MiniMap } from './MiniMap'
 import { PathTraceHost, PathTraceOverlay, usePathTrace } from './PathTrace'
 import { Ruler3D, RulerButton } from './Ruler3D'
+import { useView3D } from './store'
 import { WalkControls } from './WalkControls'
 import { DoorsButton, useDoorCollision, useDoorIds, useDoorKey } from './doors'
 
@@ -30,7 +31,9 @@ export function ViewMode() {
   const nav = useEditor((s) => s.view.nav)
   const q = QUALITY[quality]
   const glRef = useRef<WebGLRenderer | null>(null)
-  const dpr = Math.min(q.dpr, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
+  // while walking the image is fill-rate bound: render at 1x and switch back to full sharpness when the camera rests
+  const moving = useView3D((s) => s.moving)
+  const dpr = Math.min(moving ? 1 : q.dpr, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
   const coarse = useMemo(() => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches, [])
   const tracing = usePathTrace((s) => s.active)
   const doors = useDoorIds()
@@ -87,7 +90,8 @@ function ViewScene() {
   const invalidate = useThree((s) => s.invalidate)
   const revision = useProject((s) => s.revision)
   const assets = useAssets((s) => s.assets)
-  useLayoutEffect(() => invalidate(), [revision, assets, nav, quality, invalidate])
+  const moving = useView3D((s) => s.moving)
+  useLayoutEffect(() => invalidate(), [revision, assets, nav, quality, moving, invalidate])
   return (
     <>
       <Daylight walk={walk} bounds={bounds} mapSize={q.sunMap} lampLux={lampLux} />

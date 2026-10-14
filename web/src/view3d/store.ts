@@ -20,6 +20,8 @@ type View3DState = {
   cutWalls: boolean
   /** Walker pose for the mini map (throttled copy of the live pose). */
   walker: Walker | null
+  /** Walk view: the camera is moving (render at reduced resolution). */
+  moving: boolean
   /** Ground hit while placing an asset in 3D (plan mm), for the ghost. */
   ghost: { x: number; y: number; rot: number } | null
   /** Room mode: bump to ease the camera back to the room. */
@@ -36,6 +38,7 @@ type View3DState = {
   glowFace: GlowFace
   setCutWalls: (v: boolean) => void
   setWalker: (w: Walker | null) => void
+  setMoving: (v: boolean) => void
   setGhost: (g: { x: number; y: number; rot: number } | null) => void
   requestRoomFit: () => void
   setRuler: (v: boolean) => void
@@ -49,6 +52,7 @@ type View3DState = {
 export const useView3D = create<View3DState>((set) => ({
   cutWalls: false,
   walker: null,
+  moving: false,
   ghost: null,
   roomFit: 0,
   ruler: false,
@@ -58,6 +62,7 @@ export const useView3D = create<View3DState>((set) => ({
   doorOpen: {},
   setCutWalls: (cutWalls) => set({ cutWalls }),
   setWalker: (walker) => set({ walker }),
+  setMoving: (moving) => set({ moving }),
   setGhost: (ghost) => set({ ghost }),
   requestRoomFit: () => set((s) => ({ roomFit: s.roomFit + 1 })),
   setRuler: (ruler) => set(ruler ? { ruler, placingLight: null } : { ruler }),
